@@ -1,0 +1,422 @@
+{% extends "base.html" %}
+{% block title %}Admin · GPU Manager{% endblock %}
+{% block content %}
+
+<h1 class="text-2xl font-semibold mb-6">Admin</h1>
+
+{% if utilization %}
+<section class="mb-10">
+  <h2 class="text-lg font-semibold mb-3">Utilization (last 7 days)</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+    {% for u in utilization %}
+      <div class="bg-white border border-slate-200 rounded-xl p-3">
+        <div class="flex items-center justify-between mb-1">
+          <div class="font-medium text-sm">{{ u.gpu.name }}</div>
+          <div class="text-xs text-slate-500">{{ u.used_h }}h / {{ u.total_h|int }}h</div>
+        </div>
+        <div class="h-2 bg-slate-100 rounded overflow-hidden">
+          <div class="h-2 {% if u.pct > 80 %}bg-red-500{% elif u.pct > 50 %}bg-amber-500{% else %}bg-green-500{% endif %}"
+               style="width: {{ u.pct }}%"></div>
+        </div>
+        <div class="text-xs text-slate-500 mt-1">{{ u.pct }}%</div>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if queues %}
+<section class="mb-10">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-lg font-semibold">Active GPUs &amp; queues</h2>
+    <a href="/admin/activity" class="text-sm text-blue-600 hover:underline">Full activity →</a>
+  </div>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+    {% for gpu, active, q in queues %}
+      <div class="bg-white border border-slate-200 rounded-xl p-3 text-sm">
+        <div class="flex justify-between mb-1">
+          <span class="font-medium">{{ gpu.name }}</span>
+          {% if active %}<span class="text-xs text-amber-700">{{ active.user.name }} · {{ active.status.value }}</span>{% endif %}
+        </div>
+        {% if q %}
+          <div class="text-xs text-slate-500">queue: {{ q|map(attribute='user')|map(attribute='name')|join(', ') }}</div>
+        {% else %}
+          <div class="text-xs text-slate-400">no one waiting</div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="mb-10">
+  <div class="flex items-center gap-2 mb-3">
+    <h2 class="text-lg font-semibold">Pending account approvals</h2>
+    {% if pending_users %}
+      <span class="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full">{{ pending_users|length }} waiting</span>
+    {% endif %}
+  </div>
+  {% if pending_users %}
+    <div class="bg-white border border-amber-200 rounded-xl overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-amber-50 text-amber-800 text-xs uppercase">
+          <tr>
+            <th class="text-left px-3 py-2">Signed up</th>
+            <th class="text-left px-3 py-2">Name</th>
+            <th class="text-left px-3 py-2">Email</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in pending_users %}
+            <tr class="border-t border-amber-100">
+              <td class="px-3 py-2 text-slate-500">{{ u.created_at.strftime('%b %d %H:%M') }}</td>
+              <td class="px-3 py-2">{{ u.name }}</td>
+              <td class="px-3 py-2 text-slate-500">{{ u.email }}</td>
+              <td class="px-3 py-2 text-right whitespace-nowrap">
+                <form method="post" action="/admin/users/{{ u.id }}/approve" class="inline">
+                  <button class="bg-green-600 text-white text-xs px-2 py-1 rounded hover:bg-green-700">Approve</button>
+                </form>
+                <form method="post" action="/admin/users/{{ u.id }}/reject" class="inline ml-1"
+                      onsubmit="return confirm('Reject {{ u.email }}? They will not be able to use the system.');">
+                  <button class="bg-red-600 text-white text-xs px-2 py-1 rounded hover:bg-red-700">Reject</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="text-slate-500 text-sm">No accounts waiting for approval.</div>
+  {% endif %}
+</section>
+
+<section class="mb-10">
+  <h2 class="text-lg font-semibold mb-3">Quota auto-reset</h2>
+  <div class="bg-white border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div>
+      <div class="font-medium">
+        Currently:
+        <span class="inline-block ml-1 px-2 py-0.5 text-xs rounded
+              {% if quota_reset.period == 'off' %}bg-slate-200 text-slate-700{% else %}bg-green-100 text-green-700{% endif %}">
+          {{ quota_reset.period }}
+        </span>
+      </div>
+      <div class="text-sm text-slate-500">
+        {% if quota_reset.last %}Last reset: {{ quota_reset.last.strftime('%Y-%m-%d %H:%M') }} UTC{% else %}Never reset{% endif %}
+        {% if quota_reset.next %} · Next reset: {{ quota_reset.next.strftime('%Y-%m-%d') }}{% endif %}
+      </div>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <form method="post" action="/admin/settings/quota-reset-period" class="flex items-center gap-2">
+        <select name="period" class="border border-slate-300 rounded px-2 py-1 text-sm">
+          <option value="off"     {% if quota_reset.period == 'off'     %}selected{% endif %}>off</option>
+          <option value="weekly"  {% if quota_reset.period == 'weekly'  %}selected{% endif %}>weekly</option>
+          <option value="monthly" {% if quota_reset.period == 'monthly' %}selected{% endif %}>monthly</option>
+        </select>
+        <button class="text-sm bg-slate-700 text-white px-3 py-1 rounded">Save</button>
+      </form>
+      <form method="post" action="/admin/settings/quota-reset-now"
+            onsubmit="return confirm('Reset used hours to 0 for every active user right now?');">
+        <button class="text-sm bg-amber-600 text-white px-3 py-1 rounded hover:bg-amber-700">Reset now</button>
+      </form>
+    </div>
+  </div>
+</section>
+
+<section class="mb-10">
+  <h2 class="text-lg font-semibold mb-3">Request handling</h2>
+  <div class="bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between">
+    <div>
+      <div class="font-medium">Require admin approval for every GPU request</div>
+      <div class="text-sm text-slate-500">
+        Default OFF — requests auto-go-active or auto-queue. Turn ON if you want
+        to review each one (your own requests still auto-approve).
+      </div>
+    </div>
+    <form method="post" action="/admin/settings/require-approval">
+      <input type="hidden" name="enabled" value="{{ 'false' if require_approval else 'true' }}" />
+      <button class="px-3 py-1.5 rounded text-sm
+            {% if require_approval %}bg-red-600 hover:bg-red-700 text-white{% else %}bg-slate-200 hover:bg-slate-300 text-slate-700{% endif %}">
+        {% if require_approval %}ON — click to disable{% else %}OFF — click to enable{% endif %}
+      </button>
+    </form>
+  </div>
+</section>
+
+<section class="mb-10">
+  <div class="flex items-center gap-2 mb-3">
+    <h2 class="text-lg font-semibold">Pending GPU requests</h2>
+    {% if pending %}
+      <span class="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full">{{ pending|length }} waiting</span>
+    {% endif %}
+  </div>
+  {% if pending %}
+    <div class="bg-white border border-amber-200 rounded-xl overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-amber-50 text-amber-800 text-xs uppercase">
+          <tr>
+            <th class="text-left px-3 py-2">Requested</th>
+            <th class="text-left px-3 py-2">User</th>
+            <th class="text-left px-3 py-2">GPU</th>
+            <th class="text-left px-3 py-2">Hours</th>
+            <th class="text-left px-3 py-2">Quota left</th>
+            <th class="text-left px-3 py-2">Note</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in pending %}
+            <tr class="border-t border-amber-100">
+              <td class="px-3 py-2 text-slate-500">{{ r.created_at.strftime('%b %d %H:%M') }}</td>
+              <td class="px-3 py-2">
+                {{ r.user.name }}
+                <span class="text-xs text-slate-400">{{ r.user.email }}</span>
+              </td>
+              <td class="px-3 py-2">{{ r.gpu.name }}</td>
+              <td class="px-3 py-2">{{ '%.1f'|format(r.requested_hours) }}</td>
+              <td class="px-3 py-2 {% if r.user.over_quota %}text-red-600{% endif %}">
+                {{ '%.1f'|format(r.user.remaining_hours) }}
+              </td>
+              <td class="px-3 py-2 text-slate-600">{{ r.note or '' }}</td>
+              <td class="px-3 py-2 text-right whitespace-nowrap">
+                <form method="post" action="/admin/reservations/{{ r.id }}/approve" class="inline">
+                  <button class="bg-green-600 text-white text-xs px-2 py-1 rounded hover:bg-green-700">Approve</button>
+                </form>
+                <form method="post" action="/admin/reservations/{{ r.id }}/reject" class="inline ml-1">
+                  <input type="hidden" name="reason" value="" />
+                  <button class="bg-red-600 text-white text-xs px-2 py-1 rounded hover:bg-red-700"
+                          onclick="this.form.reason.value = prompt('Reason (optional):', '') || ''">
+                    Reject
+                  </button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="text-slate-500 text-sm">No requests waiting for approval.</div>
+  {% endif %}
+</section>
+
+<section class="mb-10">
+  <h2 class="text-lg font-semibold mb-3">Users ({{ users|length }})</h2>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+        <tr>
+          <th class="text-left px-3 py-2">Name</th>
+          <th class="text-left px-3 py-2">Email</th>
+          <th class="text-left px-3 py-2">Role</th>
+          <th class="text-left px-3 py-2">Quota</th>
+          <th class="text-left px-3 py-2">Used</th>
+          <th class="text-left px-3 py-2">Set quota</th>
+          <th class="text-left px-3 py-2">Add hours</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for u in users %}
+        <tr class="border-t border-slate-100 {% if not u.is_active %}opacity-50{% endif %}">
+          <td class="px-3 py-2">{{ u.name }}</td>
+          <td class="px-3 py-2 text-slate-500">{{ u.email }}</td>
+          <td class="px-3 py-2">
+            <form method="post" action="/admin/users/{{ u.id }}/role" class="flex gap-1">
+              <select name="role" class="border border-slate-300 rounded px-1 py-0.5 text-xs">
+                {% for r in Role %}
+                  <option value="{{ r.value }}" {% if r == u.role %}selected{% endif %}>{{ r.value }}</option>
+                {% endfor %}
+              </select>
+              <button class="text-xs text-blue-600 hover:underline">save</button>
+            </form>
+          </td>
+          <td class="px-3 py-2">{{ '%.1f'|format(u.quota_hours) }}</td>
+          <td class="px-3 py-2 {% if u.over_quota %}text-red-600{% endif %}">{{ '%.2f'|format(u.used_hours) }}</td>
+          <td class="px-3 py-2">
+            <form method="post" action="/admin/users/{{ u.id }}/quota" class="flex gap-1">
+              <input type="number" step="0.5" min="0" name="quota" value="{{ u.quota_hours }}"
+                     class="border border-slate-300 rounded px-1 py-0.5 w-20 text-xs" />
+              <button class="text-xs text-blue-600 hover:underline">set</button>
+            </form>
+          </td>
+          <td class="px-3 py-2">
+            <form method="post" action="/admin/users/{{ u.id }}/add-hours" class="flex gap-1">
+              <input type="number" step="1" name="hours" value="10"
+                     class="border border-slate-300 rounded px-1 py-0.5 w-16 text-xs" />
+              <button class="text-xs text-green-700 hover:underline">+</button>
+            </form>
+          </td>
+          <td class="px-3 py-2 text-right space-x-2">
+            <form method="post" action="/admin/users/{{ u.id }}/reset-used" class="inline"
+                  onsubmit="return confirm('Reset used hours to 0?');">
+              <button class="text-xs text-slate-600 hover:underline">reset used</button>
+            </form>
+            <form method="post" action="/admin/users/{{ u.id }}/toggle-active" class="inline">
+              <button class="text-xs text-red-600 hover:underline">
+                {{ 'disable' if u.is_active else 'enable' }}
+              </button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="mb-10">
+  <div class="flex items-end justify-between mb-3">
+    <h2 class="text-lg font-semibold">GPUs ({{ gpus|length }})</h2>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl p-4 mb-4">
+    <form method="post" action="/admin/gpus/add" class="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
+      <label class="text-xs text-slate-500">
+        Name *
+        <input name="name" required class="block w-full border border-slate-300 rounded px-2 py-1" placeholder="gpu-01" />
+      </label>
+      <label class="text-xs text-slate-500">
+        Model
+        <input name="model" class="block w-full border border-slate-300 rounded px-2 py-1" placeholder="RTX 4090" />
+      </label>
+      <label class="text-xs text-slate-500">
+        Host
+        <input name="host" class="block w-full border border-slate-300 rounded px-2 py-1" placeholder="lab-node-1" />
+      </label>
+      <label class="text-xs text-slate-500 md:col-span-1">
+        Notes
+        <input name="notes" class="block w-full border border-slate-300 rounded px-2 py-1" />
+      </label>
+      <button class="bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 text-sm">Add GPU</button>
+    </form>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+        <tr>
+          <th class="text-left px-3 py-2">Name</th>
+          <th class="text-left px-3 py-2">Model</th>
+          <th class="text-left px-3 py-2">Host</th>
+          <th class="text-left px-3 py-2">Visibility</th>
+          <th class="text-left px-3 py-2">Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in gpus %}
+          {% set allowed_users = gpu_access_map.get(g.id, []) %}
+          {% set allowed_ids = allowed_users | map(attribute='id') | list %}
+          <tr class="border-t border-slate-100">
+            <td class="px-3 py-2 font-medium">{{ g.name }}</td>
+            <td class="px-3 py-2">{{ g.model or '' }}</td>
+            <td class="px-3 py-2">{{ g.host or '' }}</td>
+            <td class="px-3 py-2">
+              <form method="post" action="/admin/gpus/{{ g.id }}/visibility" class="flex gap-1 items-center">
+                <select name="visibility" class="border border-slate-300 rounded px-1 py-0.5 text-xs">
+                  {% for v in GpuVisibility %}
+                    <option value="{{ v.value }}" {% if v == g.visibility %}selected{% endif %}>{{ v.value }}</option>
+                  {% endfor %}
+                </select>
+                <button class="text-xs text-blue-600 hover:underline">save</button>
+              </form>
+            </td>
+            <td class="px-3 py-2">
+              <form method="post" action="/admin/gpus/{{ g.id }}/status" class="flex gap-1">
+                <select name="status" class="border border-slate-300 rounded px-1 py-0.5 text-xs">
+                  {% for s in GpuStatus %}
+                    <option value="{{ s.value }}" {% if s == g.status %}selected{% endif %}>{{ s.value }}</option>
+                  {% endfor %}
+                </select>
+                <button class="text-xs text-blue-600 hover:underline">save</button>
+              </form>
+            </td>
+            <td class="px-3 py-2 text-right">
+              <form method="post" action="/admin/gpus/{{ g.id }}/delete"
+                    onsubmit="return confirm('Delete {{ g.name }}? This cancels its queue and ends any active session.');"
+                    class="inline">
+                <button class="text-xs text-red-600 hover:underline">delete</button>
+              </form>
+            </td>
+          </tr>
+          {% if g.visibility.value == 'RESTRICTED' %}
+          <tr class="bg-amber-50 border-t border-amber-100">
+            <td colspan="6" class="px-4 py-2">
+              <div class="text-xs text-amber-700 font-medium mb-1">Restricted — only these users can see &amp; book this GPU:</div>
+              <div class="flex flex-wrap items-center gap-2">
+                {% for u in allowed_users %}
+                  <span class="inline-flex items-center gap-1 bg-white border border-slate-200 rounded px-2 py-0.5 text-xs">
+                    {{ u.name }}
+                    <form method="post" action="/admin/gpus/{{ g.id }}/access/remove" class="inline leading-none">
+                      <input type="hidden" name="user_id" value="{{ u.id }}" />
+                      <button class="text-red-500 hover:text-red-700 font-bold leading-none"
+                              title="Remove access">×</button>
+                    </form>
+                  </span>
+                {% else %}
+                  <span class="text-xs text-slate-400 italic">No users granted access yet — only you (PI) can see it.</span>
+                {% endfor %}
+                {% set grantable = users | selectattr('id', 'ne', user.id) | rejectattr('role', 'equalto', Role.PI) | list %}
+                {% if grantable %}
+                  <form method="post" action="/admin/gpus/{{ g.id }}/access/add" class="inline-flex items-center gap-1">
+                    <select name="user_id" class="border border-slate-300 rounded px-1 py-0.5 text-xs">
+                      {% for u in grantable %}
+                        {% if u.id not in allowed_ids %}
+                          <option value="{{ u.id }}">{{ u.name }}</option>
+                        {% endif %}
+                      {% endfor %}
+                    </select>
+                    <button class="text-xs bg-amber-600 text-white px-2 py-0.5 rounded hover:bg-amber-700">Grant</button>
+                  </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2 class="text-lg font-semibold mb-3">Recent reservations</h2>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+        <tr>
+          <th class="text-left px-3 py-2">When</th>
+          <th class="text-left px-3 py-2">User</th>
+          <th class="text-left px-3 py-2">GPU</th>
+          <th class="text-left px-3 py-2">Hours</th>
+          <th class="text-left px-3 py-2">Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in recent %}
+          <tr class="border-t border-slate-100">
+            <td class="px-3 py-2 text-slate-500">{{ r.created_at.strftime('%b %d %H:%M') }}</td>
+            <td class="px-3 py-2">{{ r.user.name }}</td>
+            <td class="px-3 py-2">{{ r.gpu.name }}</td>
+            <td class="px-3 py-2">{{ '%.1f'|format(r.requested_hours) }}</td>
+            <td class="px-3 py-2">{{ r.status.value }}</td>
+            <td class="px-3 py-2 text-right">
+              {% if r.status.value in ('ACTIVE', 'OFFERED') %}
+                <form method="post" action="/admin/reservations/{{ r.id }}/force-release"
+                      onsubmit="return confirm('Force release this reservation?');" class="inline">
+                  <button class="text-xs text-red-600 hover:underline">force release</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% endblock %}

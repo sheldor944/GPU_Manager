@@ -1,0 +1,258 @@
+{# Re-rendered every 15s via HTMX. Contains everything that can change. #}
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+  <div class="bg-white border border-slate-200 rounded-xl p-4">
+    <div class="text-xs text-slate-500 uppercase">Quota</div>
+    <div class="text-2xl font-semibold">{{ '%.1f'|format(user.quota_hours) }} h</div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl p-4">
+    <div class="text-xs text-slate-500 uppercase">Used</div>
+    <div class="text-2xl font-semibold">{{ '%.2f'|format(user.used_hours) }} h</div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl p-4">
+    <div class="text-xs text-slate-500 uppercase">Remaining</div>
+    <div class="text-2xl font-semibold {% if user.over_quota %}text-red-600{% else %}text-green-700{% endif %}">
+      {{ '%.2f'|format(user.remaining_hours) }} h
+    </div>
+    {% if user.over_quota %}
+      <div class="text-xs text-red-600 mt-1">Over quota — new requests queue at lower priority.</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if notifications %}
+<div class="bg-white border border-slate-200 rounded-xl p-4 mb-6">
+  <div class="flex items-center justify-between mb-2">
+    <h2 class="font-semibold">Recent notifications</h2>
+    {% if unread_count and unread_count > 0 %}
+      <form method="post" action="/notifications/read-all">
+        <button class="text-xs text-blue-600 hover:underline">mark all read</button>
+      </form>
+    {% endif %}
+  </div>
+  <ul class="space-y-1 text-sm">
+    {% for n in notifications %}
+      <li class="flex items-start gap-2 {% if not n.read %}font-medium{% else %}text-slate-500{% endif %}">
+        <span class="mt-1 inline-block w-2 h-2 rounded-full {% if not n.read %}bg-blue-500{% else %}bg-slate-300{% endif %}"></span>
+        <span class="flex-1">
+          {{ n.message }}
+          {% if n.link %}<a class="text-blue-600 hover:underline ml-1" href="{{ n.link }}">open</a>{% endif %}
+        </span>
+        <span class="text-xs text-slate-400 whitespace-nowrap">{{ n.created_at.strftime('%b %d %H:%M') }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if my_pending %}
+<div class="bg-yellow-50 border border-yellow-300 rounded-xl p-4 mb-6">
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div class="flex-1">
+      <div class="text-sm text-yellow-800 uppercase tracking-wide">Waiting for admin approval</div>
+      <div class="text-lg font-semibold">{{ my_pending.gpu.name }} · {{ '%.1f'|format(my_pending.requested_hours) }} h</div>
+      <div class="text-sm text-slate-600">submitted {{ my_pending.created_at.strftime('%b %d %H:%M') }}</div>
+      <form method="post" action="/reservations/{{ my_pending.id }}/note" class="flex items-center gap-2 mt-2">
+        <input type="text" name="note" maxlength="200" value="{{ my_pending.note or '' }}"
+               placeholder="what are you working on?"
+               class="flex-1 border border-slate-300 rounded px-2 py-1 text-sm" />
+        <button class="text-xs bg-slate-700 text-white px-2 py-1 rounded">Save note</button>
+      </form>
+    </div>
+    <form method="post" action="/reservations/{{ my_pending.id }}/cancel"
+          onsubmit="return confirm('Cancel this request?');">
+      <button class="bg-slate-600 text-white px-3 py-1.5 rounded hover:bg-slate-700">Cancel request</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% if my_active %}
+<div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+    <div>
+      <div class="text-sm text-amber-800 uppercase tracking-wide">
+        {% if my_active.status.value == 'OFFERED' %}Your slot is ready{% else %}Currently using{% endif %}
+      </div>
+      <div class="text-lg font-semibold">{{ my_active.gpu.name }}</div>
+      <div class="text-sm text-slate-600">
+        {% if my_active.status.value == 'ACTIVE' %}
+          started {{ my_active.started_at.strftime('%b %d %H:%M') }},
+          ends {{ my_active.expected_end_at.strftime('%b %d %H:%M') }}
+          {% if my_active.expected_end_at %}
+            (<span data-countdown-to="{{ my_active.expected_end_at.isoformat() }}">…</span>)
+          {% endif %}
+        {% else %}
+          offered at {{ my_active.offered_at.strftime('%b %d %H:%M') }} — confirm within {{ settings.QUEUE_CONFIRM_MINUTES }}m
+        {% endif %}
+      </div>
+      {% if my_active.gpu.host %}
+        <div class="text-xs text-slate-500 mt-1">host: <code>{{ my_active.gpu.host }}</code></div>
+      {% endif %}
+      {% if my_active.status.value == 'ACTIVE' %}
+        <form method="post" action="/reservations/{{ my_active.id }}/note" class="flex items-center gap-2 mt-2">
+          <input type="text" name="note" maxlength="200" value="{{ my_active.note or '' }}"
+                 placeholder="what are you working on? (visible to others)"
+                 class="flex-1 border border-slate-300 rounded px-2 py-1 text-sm" />
+          <button class="text-xs bg-slate-700 text-white px-2 py-1 rounded">Save note</button>
+        </form>
+      {% endif %}
+    </div>
+    <div class="flex flex-wrap gap-2">
+      {% if my_active.status.value == 'OFFERED' %}
+        <form method="post" action="/reservations/{{ my_active.id }}/confirm">
+          <button class="bg-green-600 text-white px-3 py-1.5 rounded hover:bg-green-700">Confirm</button>
+        </form>
+      {% endif %}
+      {% if my_active.status.value == 'ACTIVE' %}
+        <form method="post" action="/reservations/{{ my_active.id }}/extend" class="flex items-center gap-1">
+          <label class="text-xs text-slate-500">New total hours</label>
+          <input type="number" step="0.25" min="0.25" max="{{ settings.MAX_RESERVATION_HOURS }}"
+                 name="hours" value="{{ '%.2f'|format(my_active.requested_hours + 1) }}"
+                 class="border border-slate-300 rounded px-2 py-1 w-20 text-sm" />
+          <button class="bg-blue-600 text-white text-sm px-3 py-1.5 rounded hover:bg-blue-700">Set</button>
+        </form>
+      {% endif %}
+      <form method="post" action="/reservations/{{ my_active.id }}/release"
+            onsubmit="return confirm('Release this GPU?');">
+        <button class="bg-red-600 text-white px-3 py-1.5 rounded hover:bg-red-700">Release</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<h2 class="text-lg font-semibold mb-3">GPUs</h2>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+  {% for v in gpu_views %}
+    {% set gpu = v.gpu %}
+    <div class="bg-white border border-slate-200 rounded-xl p-4">
+      <div class="flex items-center justify-between mb-2">
+        <div>
+          <div class="font-semibold">{{ gpu.name }}</div>
+          <div class="text-xs text-slate-500">
+            {{ gpu.model or '' }}{% if gpu.model and gpu.host %} · {% endif %}{{ gpu.host or '' }}
+          </div>
+        </div>
+        <span class="text-xs px-2 py-0.5 rounded
+              {% if gpu.status.value == 'AVAILABLE' %}bg-green-100 text-green-700
+              {% elif gpu.status.value == 'IN_USE' %}bg-amber-100 text-amber-700
+              {% else %}bg-slate-200 text-slate-600{% endif %}">
+          {{ gpu.status.value.replace('_', ' ') }}
+        </span>
+      </div>
+
+      {% if v.active %}
+        <div class="text-sm mb-1">
+          <span class="text-slate-500">In use by</span> <b>{{ v.active.user.name }}</b>,
+          ends {{ v.active.expected_end_at.strftime('%b %d %H:%M') }}
+          {% if v.active.expected_end_at %}
+            (<span class="text-slate-500" data-countdown-to="{{ v.active.expected_end_at.isoformat() }}">…</span>)
+          {% endif %}
+        </div>
+        {% if v.active.note %}
+          <div class="text-xs text-slate-600 italic mb-1">“{{ v.active.note }}”</div>
+        {% endif %}
+      {% elif v.offered %}
+        <div class="text-sm mb-1">
+          <span class="text-slate-500">Offered to</span> <b>{{ v.offered.user.name }}</b>
+          (awaiting confirmation)
+        </div>
+      {% else %}
+        <div class="text-sm text-green-700 mb-1">Free now.</div>
+      {% endif %}
+
+      {% if v.queue %}
+        <details class="text-sm mb-2">
+          <summary class="cursor-pointer text-slate-600">Queue ({{ v.queue|length }})</summary>
+          <ol class="list-decimal ml-5 mt-1 space-y-0.5 text-slate-700">
+            {% for q in v.queue %}
+              <li>
+                {{ q.user.name }}
+                <span class="text-xs text-slate-400">— {{ '%.1f'|format(q.requested_hours) }}h
+                {% if q.priority == 1 %}<span class="text-red-500">(over-quota)</span>{% endif %}
+                </span>
+                {% if q.note %}
+                  <span class="text-xs text-slate-500 italic">— “{{ q.note }}”</span>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ol>
+        </details>
+      {% endif %}
+
+      <div class="flex flex-wrap items-center gap-2 mt-2">
+        {% if not my_active and not my_pending and gpu.status.value != 'MAINTENANCE' %}
+          <form method="post" action="/reservations/request" class="flex items-end gap-2 flex-1 min-w-0">
+            <input type="hidden" name="gpu_id" value="{{ gpu.id }}" />
+            <label class="text-xs text-slate-500">
+              Hours
+              <input type="number" name="hours" step="0.5" min="0.5" max="{{ settings.MAX_RESERVATION_HOURS }}"
+                     value="2"
+                     class="block border border-slate-300 rounded px-2 py-1 w-20" required />
+            </label>
+            <input type="text" name="note" placeholder="note (optional)"
+                   class="flex-1 min-w-0 border border-slate-300 rounded px-2 py-1 text-sm" />
+            <button class="bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 text-sm whitespace-nowrap">
+              {% if user.role.value == 'PI' %}{% if v.active or v.offered %}Queue{% else %}Reserve{% endif %}{% else %}Request{% endif %}
+            </button>
+          </form>
+        {% endif %}
+        {% if gpu.status.value != 'AVAILABLE' %}
+          {% if v.watched %}
+            <form method="post" action="/reservations/watches/{{ gpu.id }}/remove">
+              <button class="text-xs text-slate-600 hover:underline">★ Watching — stop</button>
+            </form>
+          {% else %}
+            <form method="post" action="/reservations/watches/{{ gpu.id }}">
+              <button class="text-xs text-slate-500 hover:underline">☆ Notify me when free</button>
+            </form>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+  {% else %}
+    <div class="text-slate-500 col-span-2">No GPUs configured yet. {% if user.role.value == 'PI' %}Add one from the <a href="/admin" class="text-blue-600 hover:underline">Admin</a> page.{% endif %}</div>
+  {% endfor %}
+</div>
+
+<h2 class="text-lg font-semibold mb-3">My recent reservations</h2>
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+  <table class="w-full text-sm min-w-[640px]">
+    <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+      <tr>
+        <th class="text-left px-3 py-2">GPU</th>
+        <th class="text-left px-3 py-2">Status</th>
+        <th class="text-left px-3 py-2">Requested</th>
+        <th class="text-left px-3 py-2">Created</th>
+        <th class="text-left px-3 py-2">Ended</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in my_reservations %}
+      <tr class="border-t border-slate-100">
+        <td class="px-3 py-2">{{ r.gpu.name }}</td>
+        <td class="px-3 py-2">{{ r.status.value }}</td>
+        <td class="px-3 py-2">{{ '%.1f'|format(r.requested_hours) }} h</td>
+        <td class="px-3 py-2 text-slate-500">{{ r.created_at.strftime('%b %d %H:%M') }}</td>
+        <td class="px-3 py-2 text-slate-500">{{ r.ended_at.strftime('%b %d %H:%M') if r.ended_at else '—' }}</td>
+        <td class="px-3 py-2 text-right whitespace-nowrap">
+          {% if r.status.value in ('QUEUED', 'PENDING_APPROVAL') %}
+            <form method="post" action="/reservations/{{ r.id }}/cancel" class="inline">
+              <button class="text-red-600 hover:underline text-xs">Cancel</button>
+            </form>
+          {% elif r.status.value in ('COMPLETED', 'EXPIRED') and not my_active and not my_pending %}
+            <form method="post" action="/reservations/request" class="inline">
+              <input type="hidden" name="gpu_id" value="{{ r.gpu_id }}" />
+              <input type="hidden" name="hours" value="{{ r.requested_hours }}" />
+              <button class="text-blue-600 hover:underline text-xs">Rebook</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="px-3 py-4 text-center text-slate-400">No reservations yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>

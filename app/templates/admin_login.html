@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Admin login · GPU Manager{% endblock %}
+{% block content %}
+<div class="max-w-md mx-auto mt-20 bg-white border border-slate-200 rounded-xl p-8 shadow-sm">
+  <h1 class="text-2xl font-semibold mb-1 text-center">Admin login</h1>
+  <p class="text-slate-500 text-sm text-center mb-6">
+    For the PI only. Regular users should
+    <a href="/auth/login" class="text-blue-600 hover:underline">sign in with Google</a>.
+  </p>
+
+  {% if error %}
+    <div class="mb-4 p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" action="/auth/admin-login" class="space-y-3">
+    <label class="block">
+      <span class="text-xs text-slate-500">Admin password</span>
+      <input type="password" name="password" required autofocus
+             class="block w-full border border-slate-300 rounded px-2 py-1.5" />
+    </label>
+    <button class="w-full bg-purple-700 text-white px-3 py-2 rounded hover:bg-purple-800">
+      Log in as admin
+    </button>
+  </form>
+
+  {% if not settings.ADMIN_PASSWORD %}
+    <p class="mt-6 text-xs text-red-600">
+      Admin password login is not configured. Set <code>ADMIN_PASSWORD</code> in <code>.env</code>.
+    </p>
+  {% endif %}
+</div>
+{% endblock %}

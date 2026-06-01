@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}My history · GPU Manager{% endblock %}
+{% block content %}
+
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-semibold">My usage</h1>
+  <a href="/history.csv" class="text-sm text-blue-600 hover:underline">Export CSV ↓</a>
+</div>
+
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+  <div class="bg-white border border-slate-200 rounded-xl p-4">
+    <div class="text-xs text-slate-500 uppercase">Quota</div>
+    <div class="text-2xl font-semibold">{{ '%.1f'|format(user.quota_hours) }} h</div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl p-4">
+    <div class="text-xs text-slate-500 uppercase">Used</div>
+    <div class="text-2xl font-semibold">{{ '%.2f'|format(user.used_hours) }} h</div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl p-4">
+    <div class="text-xs text-slate-500 uppercase">Reservations</div>
+    <div class="text-2xl font-semibold">{{ rows|length }}</div>
+  </div>
+</div>
+
+<div class="bg-white border border-slate-200 rounded-xl p-4 mb-6">
+  <h2 class="font-semibold mb-3 text-sm text-slate-600">Daily GPU hours · last 14 days</h2>
+  <div class="flex items-end gap-1 h-32">
+    {% for label, val in chart %}
+      <div class="flex-1 flex flex-col items-center gap-1">
+        <div class="w-full bg-blue-500 rounded-t" style="height: {{ (val / chart_max * 100)|round(1) }}%; min-height: 2px;"
+             title="{{ label }}: {{ val }}h"></div>
+        <div class="text-[10px] text-slate-400 -rotate-45 origin-top-left h-4">{{ label }}</div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+  <table class="w-full text-sm min-w-[720px]">
+    <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+      <tr>
+        <th class="text-left px-3 py-2">Created</th>
+        <th class="text-left px-3 py-2">GPU</th>
+        <th class="text-left px-3 py-2">Status</th>
+        <th class="text-left px-3 py-2">Requested</th>
+        <th class="text-left px-3 py-2">Started</th>
+        <th class="text-left px-3 py-2">Ended</th>
+        <th class="text-left px-3 py-2">Note</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        <tr class="border-t border-slate-100">
+          <td class="px-3 py-2 text-slate-500">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td class="px-3 py-2">{{ r.gpu.name }}</td>
+          <td class="px-3 py-2">{{ r.status.value }}</td>
+          <td class="px-3 py-2">{{ '%.1f'|format(r.requested_hours) }} h</td>
+          <td class="px-3 py-2 text-slate-500">{{ r.started_at.strftime('%Y-%m-%d %H:%M') if r.started_at else '—' }}</td>
+          <td class="px-3 py-2 text-slate-500">{{ r.ended_at.strftime('%Y-%m-%d %H:%M') if r.ended_at else '—' }}</td>
+          <td class="px-3 py-2 text-slate-600">{{ r.note or '' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="px-3 py-4 text-center text-slate-400">No reservations yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

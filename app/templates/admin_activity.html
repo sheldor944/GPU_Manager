@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Activity · Admin · GPU Manager{% endblock %}
+{% block content %}
+
+<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+  <h1 class="text-2xl font-semibold">Activity</h1>
+  <div class="flex items-center gap-3">
+    <form method="get" action="/admin/activity" class="flex items-center gap-2">
+      <label class="text-sm text-slate-500">Filter by user</label>
+      <select name="user_id" class="border border-slate-300 rounded px-2 py-1 text-sm">
+        <option value="">— everyone —</option>
+        {% for u in users %}
+          <option value="{{ u.id }}" {% if selected_user_id == u.id %}selected{% endif %}>{{ u.name }}</option>
+        {% endfor %}
+      </select>
+      <button class="text-sm bg-slate-700 text-white px-3 py-1 rounded">Apply</button>
+    </form>
+    <a href="/admin/activity.csv{% if selected_user_id %}?user_id={{ selected_user_id }}{% endif %}"
+       class="text-sm text-blue-600 hover:underline">Export CSV ↓</a>
+  </div>
+</div>
+
+<section class="mb-10">
+  <h2 class="text-lg font-semibold mb-3">Live queues</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    {% for gpu, active, q in queues %}
+      <div class="bg-white border border-slate-200 rounded-xl p-4">
+        <div class="flex items-center justify-between mb-2">
+          <div class="font-semibold">{{ gpu.name }}</div>
+          <span class="text-xs px-2 py-0.5 rounded
+                {% if gpu.status.value == 'AVAILABLE' %}bg-green-100 text-green-700
+                {% elif gpu.status.value == 'IN_USE' %}bg-amber-100 text-amber-700
+                {% else %}bg-slate-200 text-slate-600{% endif %}">{{ gpu.status.value.replace('_',' ') }}</span>
+        </div>
+
+        {% if active %}
+          <div class="text-sm mb-2">
+            <span class="text-slate-500">{{ active.status.value }} —</span>
+            <b>{{ active.user.name }}</b>
+            {% if active.expected_end_at %}
+              <span class="text-slate-400">ends {{ active.expected_end_at.strftime('%b %d %H:%M') }}</span>
+            {% endif %}
+            <form method="post" action="/admin/reservations/{{ active.id }}/force-release"
+                  onsubmit="return confirm('Force release?');" class="inline ml-2">
+              <button class="text-xs text-red-600 hover:underline">force release</button>
+            </form>
+          </div>
+        {% endif %}
+
+        {% if q %}
+          <ol class="text-sm space-y-1">
+            {% for r in q %}
+              <li class="flex items-center justify-between gap-2 border-t border-slate-100 pt-1">
+                <span>
+                  <span class="text-slate-400 mr-1">{{ loop.index }}.</span>
+                  <b>{{ r.user.name }}</b>
+                  <span class="text-xs text-slate-400">{{ '%.1f'|format(r.requested_hours) }}h
+                    {% if r.priority == 1 %}<span class="text-red-500">over-quota</span>{% endif %}
+                  </span>
+                </span>
+                <span class="flex gap-1">
+                  <form method="post" action="/admin/queue/{{ r.id }}/move" class="inline">
+                    <input type="hidden" name="direction" value="up" />
+                    <button class="text-xs px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200" title="Move up">▲</button>
+                  </form>
+                  <form method="post" action="/admin/queue/{{ r.id }}/move" class="inline">
+                    <input type="hidden" name="direction" value="down" />
+                    <button class="text-xs px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200" title="Move down">▼</button>
+                  </form>
+                </span>
+              </li>
+            {% endfor %}
+          </ol>
+        {% else %}
+          {% if not active %}
+            <div class="text-sm text-slate-400">No activity.</div>
+          {% endif %}
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section>
+  <h2 class="text-lg font-semibold mb-3">Reservation history{% if selected_user_id %} (filtered){% endif %}</h2>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm min-w-[820px]">
+      <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+        <tr>
+          <th class="text-left px-3 py-2">Created</th>
+          <th class="text-left px-3 py-2">User</th>
+          <th class="text-left px-3 py-2">GPU</th>
+          <th class="text-left px-3 py-2">Status</th>
+          <th class="text-left px-3 py-2">Hours</th>
+          <th class="text-left px-3 py-2">Started</th>
+          <th class="text-left px-3 py-2">Ended</th>
+          <th class="text-left px-3 py-2">Note</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in history %}
+          <tr class="border-t border-slate-100">
+            <td class="px-3 py-2 text-slate-500">{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td class="px-3 py-2">{{ r.user.name }}</td>
+            <td class="px-3 py-2">{{ r.gpu.name }}</td>
+            <td class="px-3 py-2">{{ r.status.value }}</td>
+            <td class="px-3 py-2">{{ '%.1f'|format(r.requested_hours) }}</td>
+            <td class="px-3 py-2 text-slate-500">{{ r.started_at.strftime('%Y-%m-%d %H:%M') if r.started_at else '—' }}</td>
+            <td class="px-3 py-2 text-slate-500">{{ r.ended_at.strftime('%Y-%m-%d %H:%M') if r.ended_at else '—' }}</td>
+            <td class="px-3 py-2 text-slate-600">{{ r.note or '' }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="8" class="px-3 py-6 text-center text-slate-400">No reservations.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% endblock %}

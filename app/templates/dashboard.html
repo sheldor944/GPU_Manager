@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · GPU Manager{% endblock %}
+{% block content %}
+
+<div id="live"
+     hx-get="/dashboard/partial"
+     hx-trigger="every 15s"
+     hx-swap="innerHTML"
+     hx-on::after-swap="window.startCountdowns && window.startCountdowns()">
+  {% include "partials/dashboard_live.html" %}
+</div>
+
+<script>
+  window.startCountdowns = function () {
+    document.querySelectorAll('[data-countdown-to]').forEach(function (el) {
+      var target = new Date(el.getAttribute('data-countdown-to')).getTime();
+      function tick() {
+        var ms = target - Date.now();
+        if (ms <= 0) { el.textContent = 'expired'; return; }
+        var s = Math.floor(ms / 1000);
+        var h = Math.floor(s / 3600);
+        var m = Math.floor((s % 3600) / 60);
+        var sec = s % 60;
+        el.textContent = (h > 0 ? h + 'h ' : '') + m + 'm ' + (h > 0 ? '' : sec + 's');
+      }
+      tick();
+      if (el._timer) clearInterval(el._timer);
+      el._timer = setInterval(tick, 1000);
+    });
+  };
+  window.startCountdowns();
+</script>
+
+{% endblock %}

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}GPU Manager{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto; }
+    .toast { animation: toast-in 0.2s ease-out, toast-out 0.3s ease-in 4s forwards; }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+    @keyframes toast-out { to { opacity: 0; transform: translateY(-8px); } }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <nav class="bg-white border-b border-slate-200 sticky top-0 z-10">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
+      <a href="/" class="font-semibold text-lg whitespace-nowrap">Lab GPU Manager</a>
+      <div class="flex items-center gap-3 text-sm flex-wrap justify-end">
+        {% if user %}
+          <a href="/dashboard" class="hover:underline">Dashboard</a>
+          <a href="/history" class="hover:underline hidden sm:inline">History</a>
+          {% if user.role.value == "PI" %}
+            <a href="/admin" class="hover:underline">Admin</a>
+            <a href="/admin/activity" class="hover:underline hidden sm:inline">Activity</a>
+          {% endif %}
+          {% if unread_count is defined and unread_count > 0 %}
+            <a href="/dashboard" class="relative inline-flex items-center" title="{{ unread_count }} unread">
+              <span class="text-lg">🔔</span>
+              <span class="absolute -top-1 -right-2 bg-red-600 text-white text-[10px] leading-none px-1.5 py-0.5 rounded-full">{{ unread_count }}</span>
+            </a>
+          {% endif %}
+          <span class="text-slate-500 hidden md:inline">
+            {{ user.name }}
+            <span class="ml-1 text-xs px-2 py-0.5 rounded
+                  {% if user.role.value == 'PI' %}bg-purple-100 text-purple-700{% else %}bg-slate-100 text-slate-700{% endif %}">
+              {{ user.role.value }}
+            </span>
+          </span>
+          <a href="/auth/logout" class="text-red-600 hover:underline">Logout</a>
+        {% else %}
+          <a href="/auth/login" class="text-blue-600 hover:underline">Sign in with Google</a>
+        {% endif %}
+      </div>
+    </div>
+  </nav>
+
+  {% set toast_msg = request.query_params.get('msg') %}
+  {% set toast_kind = request.query_params.get('kind', 'success') %}
+  {% if toast_msg %}
+    <div class="toast fixed top-20 left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-lg shadow-lg text-sm
+                {% if toast_kind == 'error' %}bg-red-600 text-white{% else %}bg-slate-900 text-white{% endif %}">
+      {{ toast_msg }}
+    </div>
+  {% endif %}
+
+  <main class="max-w-6xl mx-auto px-4 py-6">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="text-center text-xs text-slate-400 py-6">
+    GPU Manager &middot; running on localhost
+  </footer>
+</body>
+</html>

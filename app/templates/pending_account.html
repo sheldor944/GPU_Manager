@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Awaiting approval · GPU Manager{% endblock %}
+{% block content %}
+<div class="max-w-lg mx-auto mt-16 bg-white border border-amber-200 rounded-xl p-8 shadow-sm text-center">
+  <div class="text-4xl mb-3">⏳</div>
+  <h1 class="text-2xl font-semibold mb-2">Hi {{ user.name }} — you're in the queue</h1>
+  <p class="text-slate-600">
+    Your account ({{ user.email }}) has been created, but the lab PI needs to
+    approve it before you can request GPUs.
+  </p>
+  <p class="text-slate-500 text-sm mt-4">
+    You'll get an email at <b>{{ user.email }}</b> as soon as you're approved.
+    Then just refresh this page or sign in again.
+  </p>
+  <a href="/auth/logout" class="inline-block mt-6 text-sm text-slate-500 hover:underline">Log out</a>
+</div>
+{% endblock %}
