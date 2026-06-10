@@ -149,3 +149,4 @@ GPU_Manager/
 - **Switch SQLite → Postgres**: set `DATABASE_URL=postgresql+psycopg://…` in
   `.env` and `pip install psycopg[binary]`. SQLAlchemy handles the rest.
 # GPU_Manager
+# GPU_Manager
