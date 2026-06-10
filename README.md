@@ -148,3 +148,4 @@ GPU_Manager/
   `scheduler._notify_offered` and in `routers/reservations.py::release`.
 - **Switch SQLite → Postgres**: set `DATABASE_URL=postgresql+psycopg://…` in
   `.env` and `pip install psycopg[binary]`. SQLAlchemy handles the rest.
+# GPU_Manager
