@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Optional
 
 from authlib.integrations.starlette_client import OAuth
 from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from .config import settings
 from .database import get_db
-from .models import Role, User
+from .models import ApiToken, Role, User, utcnow
+
+_bearer = HTTPBearer(auto_error=False)
 
 oauth = OAuth()
 oauth.register(
@@ -18,6 +22,42 @@ oauth.register(
     server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
     client_kwargs={"scope": "openid email profile"},
 )
+
+
+def get_user_from_bearer(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    db: Session = Depends(get_db),
+) -> Optional[User]:
+    """Resolve a Bearer token to a User for API endpoints. Returns None if no/invalid token."""
+    if credentials is None:
+        return None
+    token_hash = hashlib.sha256(credentials.credentials.encode()).hexdigest()
+    at = db.query(ApiToken).filter(ApiToken.token_hash == token_hash).first()
+    if at is None:
+        return None
+    now = utcnow()
+    if at.expires_at and at.expires_at < now:
+        return None
+    user = at.user
+    if not user or not user.is_active or not user.is_approved:
+        return None
+    at.last_used_at = now
+    db.commit()
+    return user
+
+
+def require_api_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    db: Session = Depends(get_db),
+) -> User:
+    user = get_user_from_bearer(credentials, db)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Valid Bearer token required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
 
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> Optional[User]:

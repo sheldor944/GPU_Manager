@@ -1,10 +1,19 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}GPU Manager{% endblock %}</title>
+  <script>
+    // Apply saved theme before anything renders to prevent flash
+    if (localStorage.getItem('theme') === 'dark') {
+      document.documentElement.classList.add('dark');
+    }
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' }
+  </script>
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <style>
     body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto; }
@@ -12,34 +21,50 @@
     @keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
     @keyframes toast-out { to { opacity: 0; transform: translateY(-8px); } }
   </style>
+  <script>
+    function toggleTheme() {
+      const isDark = document.documentElement.classList.toggle('dark');
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    }
+  </script>
 </head>
-<body class="bg-slate-50 text-slate-900 min-h-screen">
-  <nav class="bg-white border-b border-slate-200 sticky top-0 z-10">
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 min-h-screen transition-colors">
+
+  <nav class="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10">
     <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
-      <a href="/" class="font-semibold text-lg whitespace-nowrap">Lab GPU Manager</a>
+      <a href="/" class="font-semibold text-lg whitespace-nowrap">🖥️ GPU Manager</a>
       <div class="flex items-center gap-3 text-sm flex-wrap justify-end">
         {% if user %}
           <a href="/dashboard" class="hover:underline">Dashboard</a>
+          <a href="/calendar" class="hover:underline hidden sm:inline">Calendar</a>
           <a href="/history" class="hover:underline hidden sm:inline">History</a>
           {% if user.role.value == "PI" %}
             <a href="/admin" class="hover:underline">Admin</a>
+            <a href="/admin/analytics" class="hover:underline hidden sm:inline">Analytics</a>
             <a href="/admin/activity" class="hover:underline hidden sm:inline">Activity</a>
+            <a href="/admin/audit" class="hover:underline hidden md:inline text-slate-500 dark:text-slate-400">Audit</a>
           {% endif %}
+          <a href="/profile" class="hover:underline hidden sm:inline text-slate-500 dark:text-slate-400">Profile</a>
           {% if unread_count is defined and unread_count > 0 %}
             <a href="/dashboard" class="relative inline-flex items-center" title="{{ unread_count }} unread">
               <span class="text-lg">🔔</span>
               <span class="absolute -top-1 -right-2 bg-red-600 text-white text-[10px] leading-none px-1.5 py-0.5 rounded-full">{{ unread_count }}</span>
             </a>
           {% endif %}
-          <span class="text-slate-500 hidden md:inline">
+          <button onclick="toggleTheme()" class="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Toggle dark mode">
+            <span class="dark:hidden">🌙</span>
+            <span class="hidden dark:inline">☀️</span>
+          </button>
+          <span class="text-slate-500 dark:text-slate-400 hidden md:inline">
             {{ user.name }}
             <span class="ml-1 text-xs px-2 py-0.5 rounded
-                  {% if user.role.value == 'PI' %}bg-purple-100 text-purple-700{% else %}bg-slate-100 text-slate-700{% endif %}">
+                  {% if user.role.value == 'PI' %}bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300{% else %}bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300{% endif %}">
               {{ user.role.value }}
             </span>
           </span>
           <a href="/auth/logout" class="text-red-600 hover:underline">Logout</a>
         {% else %}
+          <button onclick="toggleTheme()" class="text-slate-500 hover:text-slate-900 dark:hover:text-white">🌙</button>
           <a href="/auth/login" class="text-blue-600 hover:underline">Sign in with Google</a>
         {% endif %}
       </div>
@@ -55,12 +80,26 @@
     </div>
   {% endif %}
 
+  {% if announcement is defined and announcement %}
+    <div class="bg-blue-600 text-white text-sm text-center px-4 py-2">
+      📢 {{ announcement }}
+    </div>
+  {% endif %}
+
   <main class="max-w-6xl mx-auto px-4 py-6">
     {% block content %}{% endblock %}
   </main>
 
-  <footer class="text-center text-xs text-slate-400 py-6">
-    GPU Manager &middot; running on localhost
+  <footer class="border-t border-slate-200 dark:border-slate-700 mt-8 py-6 text-center text-xs text-slate-400 dark:text-slate-500">
+    <div class="mb-1.5">
+      GPU Manager &middot; <a href="/api/v1/me" class="hover:underline">API</a> &middot; <a href="/profile" class="hover:underline">Profile &amp; Tokens</a>
+    </div>
+    <div>
+      A small stone in the wall &mdash;
+      <span class="text-slate-500 dark:text-slate-400 font-medium">Miraj</span>
+      &middot; CSE&rsquo;27, CSEDU &middot;
+      <a href="https://github.com/sheldor944/GPU_Manager" target="_blank" rel="noopener" class="hover:underline">add yours too</a>
+    </div>
   </footer>
 </body>
 </html>

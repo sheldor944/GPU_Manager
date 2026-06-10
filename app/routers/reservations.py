@@ -1,8 +1,11 @@
+from datetime import datetime, timezone
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from ..auth import require_user
+from ..auth import require_approved_user, require_user
 from ..config import settings
 from ..database import get_db
 from ..email_utils import send_email
@@ -32,13 +35,14 @@ async def _notify_next_offered(db: Session, next_res: Reservation) -> None:
         f"{next_res.gpu.name} is now available for you (confirm within {settings.QUEUE_CONFIRM_MINUTES}m).",
         link="/dashboard",
     )
-    await send_email(
-        next_res.user.email,
-        f"[GPU Manager] {next_res.gpu.name} is ready for you",
-        f"Hi {next_res.user.name},\n\n{next_res.gpu.name} just became available for you.\n"
-        f"Confirm within {settings.QUEUE_CONFIRM_MINUTES} minutes or you'll be skipped.\n\n"
-        f"{settings.BASE_URL}/dashboard\n",
-    )
+    if next_res.user.email_on_offer:
+        await send_email(
+            next_res.user.email,
+            f"[GPU Manager] {next_res.gpu.name} is ready for you",
+            f"Hi {next_res.user.name},\n\n{next_res.gpu.name} just became available for you.\n"
+            f"Confirm within {settings.QUEUE_CONFIRM_MINUTES} minutes or you'll be skipped.\n\n"
+            f"{settings.BASE_URL}/dashboard\n",
+        )
 
 router = APIRouter(prefix="/reservations", tags=["reservations"])
 
@@ -60,17 +64,30 @@ async def request_reservation(
     gpu_id: int = Form(...),
     hours: float = Form(...),
     note: str = Form(""),
+    scheduled_start_at: str = Form(""),
     db: Session = Depends(get_db),
-    user=Depends(require_user),
+    user=Depends(require_approved_user),
 ):
     gpu = db.get(Gpu, gpu_id)
     if gpu is None:
         raise HTTPException(404, "GPU not found")
+
+    parsed_start: Optional[datetime] = None
+    if scheduled_start_at.strip():
+        try:
+            parsed_start = datetime.fromisoformat(scheduled_start_at.replace("Z", "+00:00"))
+            if parsed_start.tzinfo is None:
+                parsed_start = parsed_start.replace(tzinfo=timezone.utc)
+        except ValueError:
+            add_notification(db, user.id, "Invalid scheduled start time format.")
+            return _redirect_back("Invalid start time format.", kind="error")
+
     try:
-        res, msg = request_gpu(db, user, gpu, hours, note=note)
+        res, msg = request_gpu(db, user, gpu, hours, note=note, scheduled_start_at=parsed_start)
     except ValueError as e:
         add_notification(db, user.id, f"Could not book {gpu.name}: {e}")
         return _redirect_back(str(e), kind="error")
+
     add_notification(db, user.id, msg, link="/dashboard")
     if res.status == ReservationStatus.PENDING_APPROVAL:
         await _notify_admins_of_pending(db, res)
@@ -147,13 +164,13 @@ def edit_note(
         raise HTTPException(404, "Not found")
     if res.status not in (
         ReservationStatus.PENDING_APPROVAL,
+        ReservationStatus.SCHEDULED,
         ReservationStatus.QUEUED,
         ReservationStatus.OFFERED,
         ReservationStatus.ACTIVE,
     ):
         raise HTTPException(400, "Reservation is already finished")
-    cleaned = note.strip()
-    res.note = cleaned or None
+    res.note = note.strip() or None
     db.commit()
     return _redirect_back("Note updated.")
 

@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}Profile · GPU Manager{% endblock %}
+{% block content %}
+
+<h1 class="text-2xl font-semibold mb-6">My Profile</h1>
+
+{# ── New token banner ──────────────────────────────────────────────────── #}
+{% if new_token %}
+<div class="bg-green-50 dark:bg-green-950 border border-green-300 dark:border-green-700 rounded-xl p-4 mb-6">
+  <div class="font-semibold text-green-800 dark:text-green-200 mb-1">✅ API token created — copy it now, it won't be shown again.</div>
+  <code class="block bg-white dark:bg-slate-900 border border-green-200 dark:border-green-800 rounded p-3 text-sm break-all select-all">{{ new_token }}</code>
+  <div class="text-xs text-green-700 dark:text-green-400 mt-2">Use this as a Bearer token: <code>Authorization: Bearer &lt;token&gt;</code></div>
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+  {# ── Personal info + email preferences ──────────────────────────────── #}
+  <section>
+    <h2 class="text-lg font-semibold mb-3">Preferences</h2>
+    <form method="post" action="/profile"
+          class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-4">
+      <div>
+        <label class="text-xs text-slate-500 block mb-1">Display name</label>
+        <input type="text" name="name" value="{{ user.name }}"
+               class="w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-3 py-2 text-sm" />
+      </div>
+      <div>
+        <div class="text-xs text-slate-500 mb-2">Email notifications</div>
+        <div class="space-y-2">
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="email_on_offer" {% if user.email_on_offer %}checked{% endif %}
+                   class="rounded border-slate-300" />
+            GPU offered to me (confirm window)
+          </label>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="email_on_warning" {% if user.email_on_warning %}checked{% endif %}
+                   class="rounded border-slate-300" />
+            Session ending soon warning
+          </label>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="email_on_watch" {% if user.email_on_watch %}checked{% endif %}
+                   class="rounded border-slate-300" />
+            Watched GPU became free
+          </label>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="email_on_queue_move" {% if user.email_on_queue_move %}checked{% endif %}
+                   class="rounded border-slate-300" />
+            Queue position changed
+          </label>
+        </div>
+      </div>
+      <div class="text-xs text-slate-500">
+        Email: <span class="font-medium">{{ user.email }}</span>
+        &nbsp;·&nbsp; Role: <span class="font-medium">{{ user.role.value }}</span>
+        &nbsp;·&nbsp; Quota: <span class="font-medium">{{ '%.1f'|format(user.quota_hours) }}h</span>
+        &nbsp;·&nbsp; Used: <span class="font-medium">{{ '%.2f'|format(user.used_hours) }}h</span>
+      </div>
+      <button class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 text-sm">Save preferences</button>
+    </form>
+  </section>
+
+  {# ── API tokens ──────────────────────────────────────────────────────── #}
+  <section>
+    <h2 class="text-lg font-semibold mb-3">API Tokens</h2>
+    <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+      <p class="text-sm text-slate-600 dark:text-slate-400 mb-4">
+        Tokens let you access the <a href="/api/v1/me" class="text-blue-600 hover:underline">REST API</a>
+        from scripts or the CLI. Each token has the same permissions as your account.
+      </p>
+
+      {# Existing tokens #}
+      {% if tokens %}
+        <table class="w-full text-sm mb-4">
+          <thead class="text-xs text-slate-500 uppercase border-b border-slate-100 dark:border-slate-700">
+            <tr>
+              <th class="text-left pb-1">Name</th>
+              <th class="text-left pb-1">Created</th>
+              <th class="text-left pb-1">Last used</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in tokens %}
+              <tr class="border-t border-slate-100 dark:border-slate-700">
+                <td class="py-1.5 pr-2 font-medium">{{ t.name }}</td>
+                <td class="py-1.5 pr-2 text-slate-500 text-xs">{{ t.created_at.strftime('%b %d %Y') }}</td>
+                <td class="py-1.5 pr-2 text-slate-500 text-xs">
+                  {{ t.last_used_at.strftime('%b %d %Y') if t.last_used_at else 'Never' }}
+                </td>
+                <td class="py-1.5 text-right">
+                  <form method="post" action="/profile/tokens/{{ t.id }}/delete" class="inline"
+                        onsubmit="return confirm('Delete token « {{ t.name }} »? Any scripts using it will stop working.');">
+                    <button class="text-xs text-red-600 hover:underline">Revoke</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="text-sm text-slate-400 mb-4">No tokens yet.</p>
+      {% endif %}
+
+      {# Create new token #}
+      <form method="post" action="/profile/tokens/create" class="flex gap-2 items-end">
+        <label class="text-xs text-slate-500 flex-1">
+          Token name
+          <input type="text" name="token_name" placeholder="My script" required
+                 class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-0.5 text-sm" />
+        </label>
+        <button class="bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 text-sm">Create token</button>
+      </form>
+
+      <div class="mt-4 border-t border-slate-100 dark:border-slate-700 pt-4">
+        <div class="text-xs text-slate-500 font-medium mb-2">Quick API reference</div>
+        <pre class="text-xs bg-slate-50 dark:bg-slate-900 rounded p-3 overflow-x-auto">curl -H "Authorization: Bearer &lt;token&gt;" \
+  {{ settings.BASE_URL }}/api/v1/me
+
+curl -H "Authorization: Bearer &lt;token&gt;" \
+  {{ settings.BASE_URL }}/api/v1/gpus
+
+# Book immediately
+curl -X POST \
+  -H "Authorization: Bearer &lt;token&gt;" \
+  -H "Content-Type: application/json" \
+  -d '{"gpu_id": 1, "hours": 4, "note": "training run"}' \
+  {{ settings.BASE_URL }}/api/v1/reservations
+
+# Schedule for a specific time
+curl -X POST \
+  -H "Authorization: Bearer &lt;token&gt;" \
+  -H "Content-Type: application/json" \
+  -d '{"gpu_id": 1, "hours": 8, "scheduled_start_at": "2025-01-15T09:00:00Z"}' \
+  {{ settings.BASE_URL }}/api/v1/reservations</pre>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+{% endblock %}

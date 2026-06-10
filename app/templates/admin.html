@@ -4,27 +4,40 @@
 
 <h1 class="text-2xl font-semibold mb-6">Admin</h1>
 
+{# ── Utilization ──────────────────────────────────────────────────────── #}
 {% if utilization %}
 <section class="mb-10">
   <h2 class="text-lg font-semibold mb-3">Utilization (last 7 days)</h2>
   <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
     {% for u in utilization %}
-      <div class="bg-white border border-slate-200 rounded-xl p-3">
-        <div class="flex items-center justify-between mb-1">
+      <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3">
+        <div class="flex items-center justify-between mb-0.5">
           <div class="font-medium text-sm">{{ u.gpu.name }}</div>
           <div class="text-xs text-slate-500">{{ u.used_h }}h / {{ u.total_h|int }}h</div>
         </div>
-        <div class="h-2 bg-slate-100 rounded overflow-hidden">
-          <div class="h-2 {% if u.pct > 80 %}bg-red-500{% elif u.pct > 50 %}bg-amber-500{% else %}bg-green-500{% endif %}"
+        {% if u.gpu.model %}
+          <div class="text-xs text-slate-400 mb-1.5 truncate">{{ u.gpu.model }}</div>
+        {% endif %}
+        <div class="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+          <div class="h-1.5 {% if u.pct > 80 %}bg-red-500{% elif u.pct > 50 %}bg-amber-500{% else %}bg-green-500{% endif %}"
                style="width: {{ u.pct }}%"></div>
         </div>
-        <div class="text-xs text-slate-500 mt-1">{{ u.pct }}%</div>
+        <div class="flex items-center justify-between mt-1.5 text-xs text-slate-500">
+          <span class="font-medium">{{ u.pct }}% used (7d)</span>
+          {% if gpu_metrics.get(u.gpu.id) %}
+            {% set m = gpu_metrics[u.gpu.id] %}
+            <span class="{% if m.util_gpu > 80 %}text-red-600{% elif m.util_gpu > 20 %}text-amber-600{% else %}text-slate-400{% endif %}">
+              Live {{ m.util_gpu }}% · {{ m.temp_c }}°C
+            </span>
+          {% endif %}
+        </div>
       </div>
     {% endfor %}
   </div>
 </section>
 {% endif %}
 
+{# ── Active queues summary ─────────────────────────────────────────────── #}
 {% if queues %}
 <section class="mb-10">
   <div class="flex items-center justify-between mb-3">
@@ -33,7 +46,7 @@
   </div>
   <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
     {% for gpu, active, q in queues %}
-      <div class="bg-white border border-slate-200 rounded-xl p-3 text-sm">
+      <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-sm">
         <div class="flex justify-between mb-1">
           <span class="font-medium">{{ gpu.name }}</span>
           {% if active %}<span class="text-xs text-amber-700">{{ active.user.name }} · {{ active.status.value }}</span>{% endif %}
@@ -49,6 +62,7 @@
 </section>
 {% endif %}
 
+{# ── Pending account approvals ─────────────────────────────────────────── #}
 <section class="mb-10">
   <div class="flex items-center gap-2 mb-3">
     <h2 class="text-lg font-semibold">Pending account approvals</h2>
@@ -57,9 +71,9 @@
     {% endif %}
   </div>
   {% if pending_users %}
-    <div class="bg-white border border-amber-200 rounded-xl overflow-hidden">
+    <div class="bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-800 rounded-xl overflow-hidden">
       <table class="w-full text-sm">
-        <thead class="bg-amber-50 text-amber-800 text-xs uppercase">
+        <thead class="bg-amber-50 dark:bg-amber-900 text-amber-800 dark:text-amber-200 text-xs uppercase">
           <tr>
             <th class="text-left px-3 py-2">Signed up</th>
             <th class="text-left px-3 py-2">Name</th>
@@ -69,7 +83,7 @@
         </thead>
         <tbody>
           {% for u in pending_users %}
-            <tr class="border-t border-amber-100">
+            <tr class="border-t border-amber-100 dark:border-amber-800">
               <td class="px-3 py-2 text-slate-500">{{ u.created_at.strftime('%b %d %H:%M') }}</td>
               <td class="px-3 py-2">{{ u.name }}</td>
               <td class="px-3 py-2 text-slate-500">{{ u.email }}</td>
@@ -78,7 +92,7 @@
                   <button class="bg-green-600 text-white text-xs px-2 py-1 rounded hover:bg-green-700">Approve</button>
                 </form>
                 <form method="post" action="/admin/users/{{ u.id }}/reject" class="inline ml-1"
-                      onsubmit="return confirm('Reject {{ u.email }}? They will not be able to use the system.');">
+                      onsubmit="return confirm('Reject {{ u.email }}?');">
                   <button class="bg-red-600 text-white text-xs px-2 py-1 rounded hover:bg-red-700">Reject</button>
                 </form>
               </td>
@@ -92,9 +106,42 @@
   {% endif %}
 </section>
 
+{# ── Broadcast ─────────────────────────────────────────────────────────── #}
+<section class="mb-10">
+  <h2 class="text-lg font-semibold mb-3">Broadcast message</h2>
+  <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+    <form method="post" action="/admin/broadcast" class="space-y-3">
+      <textarea name="message" rows="2" required placeholder="Message to all approved users…"
+                class="w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-3 py-2 text-sm"></textarea>
+      <div class="flex items-center justify-between">
+        <label class="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="send_email_flag" value="on" class="rounded border-slate-300" />
+          Also send as email
+        </label>
+        <button class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 text-sm">Send to all users</button>
+      </div>
+    </form>
+  </div>
+</section>
+
+{# ── System announcement banner ────────────────────────────────────────── #}
+<section class="mb-10">
+  <h2 class="text-lg font-semibold mb-3">Announcement banner</h2>
+  <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+    <p class="text-sm text-slate-500 mb-3">Shown as a persistent blue banner at the top of every page.</p>
+    <form method="post" action="/admin/settings/announcement" class="flex gap-2">
+      <input type="text" name="announcement_text" value="{{ announcement }}"
+             placeholder="Leave blank to clear the banner"
+             class="flex-1 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-3 py-2 text-sm" />
+      <button class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 text-sm">Save</button>
+    </form>
+  </div>
+</section>
+
+{# ── Quota auto-reset ──────────────────────────────────────────────────── #}
 <section class="mb-10">
   <h2 class="text-lg font-semibold mb-3">Quota auto-reset</h2>
-  <div class="bg-white border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+  <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
     <div>
       <div class="font-medium">
         Currently:
@@ -105,12 +152,12 @@
       </div>
       <div class="text-sm text-slate-500">
         {% if quota_reset.last %}Last reset: {{ quota_reset.last.strftime('%Y-%m-%d %H:%M') }} UTC{% else %}Never reset{% endif %}
-        {% if quota_reset.next %} · Next reset: {{ quota_reset.next.strftime('%Y-%m-%d') }}{% endif %}
+        {% if quota_reset.next %} · Next: {{ quota_reset.next.strftime('%Y-%m-%d') }}{% endif %}
       </div>
     </div>
     <div class="flex flex-wrap items-center gap-2">
       <form method="post" action="/admin/settings/quota-reset-period" class="flex items-center gap-2">
-        <select name="period" class="border border-slate-300 rounded px-2 py-1 text-sm">
+        <select name="period" class="border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1 text-sm">
           <option value="off"     {% if quota_reset.period == 'off'     %}selected{% endif %}>off</option>
           <option value="weekly"  {% if quota_reset.period == 'weekly'  %}selected{% endif %}>weekly</option>
           <option value="monthly" {% if quota_reset.period == 'monthly' %}selected{% endif %}>monthly</option>
@@ -125,26 +172,37 @@
   </div>
 </section>
 
+{# ── Request handling + Webhook ────────────────────────────────────────── #}
 <section class="mb-10">
-  <h2 class="text-lg font-semibold mb-3">Request handling</h2>
-  <div class="bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between">
-    <div>
-      <div class="font-medium">Require admin approval for every GPU request</div>
-      <div class="text-sm text-slate-500">
-        Default OFF — requests auto-go-active or auto-queue. Turn ON if you want
-        to review each one (your own requests still auto-approve).
+  <h2 class="text-lg font-semibold mb-3">Settings</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 flex items-center justify-between">
+      <div>
+        <div class="font-medium">Require admin approval for GPU requests</div>
+        <div class="text-sm text-slate-500">Default OFF — requests auto-activate/queue. Your own requests always auto-approve.</div>
       </div>
+      <form method="post" action="/admin/settings/require-approval">
+        <input type="hidden" name="enabled" value="{{ 'false' if require_approval else 'true' }}" />
+        <button class="px-3 py-1.5 rounded text-sm
+              {% if require_approval %}bg-red-600 hover:bg-red-700 text-white{% else %}bg-slate-200 hover:bg-slate-300 text-slate-700{% endif %}">
+          {% if require_approval %}ON — click to disable{% else %}OFF — click to enable{% endif %}
+        </button>
+      </form>
     </div>
-    <form method="post" action="/admin/settings/require-approval">
-      <input type="hidden" name="enabled" value="{{ 'false' if require_approval else 'true' }}" />
-      <button class="px-3 py-1.5 rounded text-sm
-            {% if require_approval %}bg-red-600 hover:bg-red-700 text-white{% else %}bg-slate-200 hover:bg-slate-300 text-slate-700{% endif %}">
-        {% if require_approval %}ON — click to disable{% else %}OFF — click to enable{% endif %}
-      </button>
-    </form>
+    <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+      <div class="font-medium mb-1">Webhook (Slack / Discord / custom)</div>
+      <div class="text-sm text-slate-500 mb-2">Receive key events as POST requests. Compatible with Slack/Discord Incoming Webhooks.</div>
+      <form method="post" action="/admin/settings/webhook" class="flex gap-2">
+        <input type="url" name="webhook_url" value="{{ webhook_url }}"
+               placeholder="https://hooks.slack.com/services/…"
+               class="flex-1 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1 text-sm" />
+        <button class="bg-slate-700 text-white px-3 py-1 rounded text-sm">Save</button>
+      </form>
+    </div>
   </div>
 </section>
 
+{# ── Pending GPU requests ──────────────────────────────────────────────── #}
 <section class="mb-10">
   <div class="flex items-center gap-2 mb-3">
     <h2 class="text-lg font-semibold">Pending GPU requests</h2>
@@ -153,9 +211,9 @@
     {% endif %}
   </div>
   {% if pending %}
-    <div class="bg-white border border-amber-200 rounded-xl overflow-hidden">
+    <div class="bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-800 rounded-xl overflow-hidden">
       <table class="w-full text-sm">
-        <thead class="bg-amber-50 text-amber-800 text-xs uppercase">
+        <thead class="bg-amber-50 dark:bg-amber-900 text-amber-800 dark:text-amber-200 text-xs uppercase">
           <tr>
             <th class="text-left px-3 py-2">Requested</th>
             <th class="text-left px-3 py-2">User</th>
@@ -168,18 +226,13 @@
         </thead>
         <tbody>
           {% for r in pending %}
-            <tr class="border-t border-amber-100">
+            <tr class="border-t border-amber-100 dark:border-amber-800">
               <td class="px-3 py-2 text-slate-500">{{ r.created_at.strftime('%b %d %H:%M') }}</td>
-              <td class="px-3 py-2">
-                {{ r.user.name }}
-                <span class="text-xs text-slate-400">{{ r.user.email }}</span>
-              </td>
+              <td class="px-3 py-2">{{ r.user.name }} <span class="text-xs text-slate-400">{{ r.user.email }}</span></td>
               <td class="px-3 py-2">{{ r.gpu.name }}</td>
               <td class="px-3 py-2">{{ '%.1f'|format(r.requested_hours) }}</td>
-              <td class="px-3 py-2 {% if r.user.over_quota %}text-red-600{% endif %}">
-                {{ '%.1f'|format(r.user.remaining_hours) }}
-              </td>
-              <td class="px-3 py-2 text-slate-600">{{ r.note or '' }}</td>
+              <td class="px-3 py-2 {% if r.user.over_quota %}text-red-600{% endif %}">{{ '%.1f'|format(r.user.remaining_hours) }}</td>
+              <td class="px-3 py-2 text-slate-600 dark:text-slate-400">{{ r.note or '' }}</td>
               <td class="px-3 py-2 text-right whitespace-nowrap">
                 <form method="post" action="/admin/reservations/{{ r.id }}/approve" class="inline">
                   <button class="bg-green-600 text-white text-xs px-2 py-1 rounded hover:bg-green-700">Approve</button>
@@ -187,9 +240,7 @@
                 <form method="post" action="/admin/reservations/{{ r.id }}/reject" class="inline ml-1">
                   <input type="hidden" name="reason" value="" />
                   <button class="bg-red-600 text-white text-xs px-2 py-1 rounded hover:bg-red-700"
-                          onclick="this.form.reason.value = prompt('Reason (optional):', '') || ''">
-                    Reject
-                  </button>
+                          onclick="this.form.reason.value = prompt('Reason (optional):', '') || ''">Reject</button>
                 </form>
               </td>
             </tr>
@@ -202,11 +253,12 @@
   {% endif %}
 </section>
 
+{# ── Users ────────────────────────────────────────────────────────────── #}
 <section class="mb-10">
   <h2 class="text-lg font-semibold mb-3">Users ({{ users|length }})</h2>
-  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+  <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-x-auto">
     <table class="w-full text-sm">
-      <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+      <thead class="bg-slate-50 dark:bg-slate-900 text-slate-500 text-xs uppercase">
         <tr>
           <th class="text-left px-3 py-2">Name</th>
           <th class="text-left px-3 py-2">Email</th>
@@ -220,42 +272,45 @@
       </thead>
       <tbody>
       {% for u in users %}
-        <tr class="border-t border-slate-100 {% if not u.is_active %}opacity-50{% endif %}">
-          <td class="px-3 py-2">{{ u.name }}</td>
-          <td class="px-3 py-2 text-slate-500">{{ u.email }}</td>
+        <tr class="border-t border-slate-100 dark:border-slate-700 {% if not u.is_active %}opacity-40{% endif %}">
           <td class="px-3 py-2">
-            <form method="post" action="/admin/users/{{ u.id }}/role" class="flex gap-1">
-              <select name="role" class="border border-slate-300 rounded px-1 py-0.5 text-xs">
+            <div class="font-medium">{{ u.name }}</div>
+            {% if not u.is_active %}<div class="text-xs text-slate-400">disabled</div>{% endif %}
+          </td>
+          <td class="px-3 py-2 text-slate-500 text-xs">{{ u.email }}</td>
+          <td class="px-3 py-2">
+            <form method="post" action="/admin/users/{{ u.id }}/role" class="flex gap-1 items-center">
+              <select name="role" class="border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-1 py-0.5 text-xs">
                 {% for r in Role %}
                   <option value="{{ r.value }}" {% if r == u.role %}selected{% endif %}>{{ r.value }}</option>
                 {% endfor %}
               </select>
-              <button class="text-xs text-blue-600 hover:underline">save</button>
+              <button class="text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600">set</button>
             </form>
           </td>
-          <td class="px-3 py-2">{{ '%.1f'|format(u.quota_hours) }}</td>
-          <td class="px-3 py-2 {% if u.over_quota %}text-red-600{% endif %}">{{ '%.2f'|format(u.used_hours) }}</td>
+          <td class="px-3 py-2 text-sm">{{ '%.1f'|format(u.quota_hours) }}h</td>
+          <td class="px-3 py-2 text-sm {% if u.over_quota %}text-red-600 font-medium{% endif %}">{{ '%.1f'|format(u.used_hours) }}h</td>
           <td class="px-3 py-2">
-            <form method="post" action="/admin/users/{{ u.id }}/quota" class="flex gap-1">
+            <form method="post" action="/admin/users/{{ u.id }}/quota" class="flex gap-1 items-center">
               <input type="number" step="0.5" min="0" name="quota" value="{{ u.quota_hours }}"
-                     class="border border-slate-300 rounded px-1 py-0.5 w-20 text-xs" />
-              <button class="text-xs text-blue-600 hover:underline">set</button>
+                     class="border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-1.5 py-0.5 w-20 text-xs" />
+              <button class="text-xs bg-blue-50 hover:bg-blue-100 dark:bg-blue-950 text-blue-600 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-800">set</button>
             </form>
           </td>
           <td class="px-3 py-2">
-            <form method="post" action="/admin/users/{{ u.id }}/add-hours" class="flex gap-1">
+            <form method="post" action="/admin/users/{{ u.id }}/add-hours" class="flex gap-1 items-center">
               <input type="number" step="1" name="hours" value="10"
-                     class="border border-slate-300 rounded px-1 py-0.5 w-16 text-xs" />
-              <button class="text-xs text-green-700 hover:underline">+</button>
+                     class="border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-1.5 py-0.5 w-16 text-xs" />
+              <button class="text-xs bg-green-50 hover:bg-green-100 dark:bg-green-950 text-green-700 px-1.5 py-0.5 rounded border border-green-200 dark:border-green-800">+ add</button>
             </form>
           </td>
-          <td class="px-3 py-2 text-right space-x-2">
+          <td class="px-3 py-2 text-right whitespace-nowrap">
             <form method="post" action="/admin/users/{{ u.id }}/reset-used" class="inline"
-                  onsubmit="return confirm('Reset used hours to 0?');">
-              <button class="text-xs text-slate-600 hover:underline">reset used</button>
+                  onsubmit="return confirm('Reset used hours to 0 for {{ u.name }}?');">
+              <button class="text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600">reset used</button>
             </form>
-            <form method="post" action="/admin/users/{{ u.id }}/toggle-active" class="inline">
-              <button class="text-xs text-red-600 hover:underline">
+            <form method="post" action="/admin/users/{{ u.id }}/toggle-active" class="inline ml-1">
+              <button class="text-xs {% if u.is_active %}bg-red-50 hover:bg-red-100 text-red-600 border-red-200{% else %}bg-green-50 hover:bg-green-100 text-green-700 border-green-200{% endif %} px-2 py-0.5 rounded border">
                 {{ 'disable' if u.is_active else 'enable' }}
               </button>
             </form>
@@ -267,126 +322,446 @@
   </div>
 </section>
 
+{# ── GPUs ─────────────────────────────────────────────────────────────── #}
 <section class="mb-10">
   <div class="flex items-end justify-between mb-3">
-    <h2 class="text-lg font-semibold">GPUs ({{ gpus|length }})</h2>
+    <h2 class="text-lg font-semibold">Servers &amp; GPUs ({{ gpus|length }})</h2>
   </div>
 
-  <div class="bg-white border border-slate-200 rounded-xl p-4 mb-4">
-    <form method="post" action="/admin/gpus/add" class="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
-      <label class="text-xs text-slate-500">
-        Name *
-        <input name="name" required class="block w-full border border-slate-300 rounded px-2 py-1" placeholder="gpu-01" />
-      </label>
-      <label class="text-xs text-slate-500">
-        Model
-        <input name="model" class="block w-full border border-slate-300 rounded px-2 py-1" placeholder="RTX 4090" />
-      </label>
-      <label class="text-xs text-slate-500">
-        Host
-        <input name="host" class="block w-full border border-slate-300 rounded px-2 py-1" placeholder="lab-node-1" />
-      </label>
-      <label class="text-xs text-slate-500 md:col-span-1">
-        Notes
-        <input name="notes" class="block w-full border border-slate-300 rounded px-2 py-1" />
-      </label>
-      <button class="bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 text-sm">Add GPU</button>
-    </form>
+  <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 mb-4">
+    <details id="add-gpu-details">
+      <summary class="text-sm font-medium cursor-pointer text-blue-600 hover:underline">+ Add Server</summary>
+      <form method="post" action="/admin/gpus/add" id="add-gpu-form" class="mt-4 space-y-4">
+
+        {# ── Connection ─────────────────────────────────────────────────── #}
+        <div>
+          <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Connection</div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <label class="text-xs text-slate-500">
+              Display name *
+              <input name="name" id="agf-name" required
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-1"
+                     placeholder="gpu-server-01" />
+            </label>
+            <label class="text-xs text-slate-500 md:col-span-2">
+              SSH Host (IP or hostname)
+              <input name="host" id="agf-host"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-1 font-mono"
+                     placeholder="192.168.1.100" />
+            </label>
+            <label class="text-xs text-slate-500">
+              SSH Port
+              <input name="ssh_port" id="agf-port" type="number" min="1" max="65535"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-1"
+                     placeholder="22" />
+            </label>
+            <label class="text-xs text-slate-500">
+              SSH Username
+              <input name="ssh_user" id="agf-user"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-1"
+                     placeholder="ubuntu" />
+            </label>
+            <label class="text-xs text-slate-500 md:col-span-2">
+              SSH Password
+              <input name="ssh_password" id="agf-pass" type="password"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-1"
+                     placeholder="leave blank to use SSH key" />
+            </label>
+            <div class="flex items-end mt-1">
+              <button type="button" id="agf-probe-btn"
+                      class="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-2 rounded-lg flex items-center justify-center gap-1.5 font-medium">
+                <span id="agf-probe-icon">🔍</span> Probe Server
+              </button>
+            </div>
+          </div>
+          <div id="agf-probe-status" class="hidden mt-2 text-xs rounded-lg px-3 py-2"></div>
+        </div>
+
+        {# ── Hardware specs (auto-filled, always editable) ──────────────── #}
+        <div class="border-t border-slate-200 dark:border-slate-700 pt-4">
+          <div class="flex items-center gap-2 mb-2">
+            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide">Hardware specs</div>
+            <span class="text-xs text-slate-400">— auto-filled after probing, always editable</span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <label class="text-xs text-slate-500 md:col-span-2">
+              GPU(s)
+              <input name="model" id="agf-model"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-1"
+                     placeholder="e.g. 2× RTX 4090 (24 GiB each, 48 GiB total)" />
+            </label>
+            <label class="text-xs text-slate-500">
+              Processor (CPU)
+              <input name="cpu_model" id="agf-cpu-model"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-1"
+                     placeholder="Intel i9-13900K" />
+            </label>
+            <label class="text-xs text-slate-500">
+              RAM (GB)
+              <input name="ram_gb" id="agf-ram-gb" type="number" min="1"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-1"
+                     placeholder="128" />
+            </label>
+            <label class="text-xs text-slate-500">
+              Tags (comma-sep)
+              <input name="tags" id="agf-tags"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-1"
+                     placeholder="A100, high-mem" />
+            </label>
+            <label class="text-xs text-slate-500">
+              Max hours
+              <input name="max_hours" id="agf-maxh" type="number" step="1" min="1"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-1"
+                     placeholder="24" />
+            </label>
+            <label class="text-xs text-slate-500 md:col-span-2">
+              Notes (optional)
+              <input name="notes" id="agf-notes"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-1"
+                     placeholder="additional info..." />
+            </label>
+            <label class="text-xs text-slate-500 md:col-span-2 flex items-end pb-0.5">
+              <input type="checkbox" name="is_remote" value="true" class="mr-2 accent-purple-600" />
+              <span>Remote PC <span class="font-normal text-slate-400">(no SSH yet — won't show as error)</span></span>
+            </label>
+            <label class="text-xs text-slate-500 md:col-span-4">
+              Connection instructions
+              <span class="text-slate-400 font-normal ml-1">— shown to users once they have an active session</span>
+              <textarea name="connect_instructions" id="agf-instructions" rows="3"
+                        class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-1 font-mono resize-y"
+                        placeholder="e.g.&#10;ssh ubuntu@192.168.1.100&#10;Conda env: source activate lab&#10;Check GPU: nvidia-smi"></textarea>
+            </label>
+          </div>
+        </div>
+
+        <input type="hidden" name="gpu_index" value="0" />
+        <div class="flex items-center gap-3 pt-1">
+          <button class="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 text-sm font-medium">Add Server</button>
+          <span class="text-xs text-amber-700 dark:text-amber-400">Defaults to <strong>Restricted</strong> visibility.</span>
+        </div>
+      </form>
+    </details>
   </div>
 
-  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
-    <table class="w-full text-sm">
-      <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
-        <tr>
-          <th class="text-left px-3 py-2">Name</th>
-          <th class="text-left px-3 py-2">Model</th>
-          <th class="text-left px-3 py-2">Host</th>
-          <th class="text-left px-3 py-2">Visibility</th>
-          <th class="text-left px-3 py-2">Status</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for g in gpus %}
-          {% set allowed_users = gpu_access_map.get(g.id, []) %}
-          {% set allowed_ids = allowed_users | map(attribute='id') | list %}
-          <tr class="border-t border-slate-100">
-            <td class="px-3 py-2 font-medium">{{ g.name }}</td>
-            <td class="px-3 py-2">{{ g.model or '' }}</td>
-            <td class="px-3 py-2">{{ g.host or '' }}</td>
-            <td class="px-3 py-2">
-              <form method="post" action="/admin/gpus/{{ g.id }}/visibility" class="flex gap-1 items-center">
-                <select name="visibility" class="border border-slate-300 rounded px-1 py-0.5 text-xs">
-                  {% for v in GpuVisibility %}
-                    <option value="{{ v.value }}" {% if v == g.visibility %}selected{% endif %}>{{ v.value }}</option>
+  <script>
+  (function () {
+    var inp = function(id) { return document.getElementById(id); };
+
+    inp('agf-probe-btn').addEventListener('click', async function () {
+      var host = inp('agf-host').value.trim();
+      if (!host) { showStatus('Enter an SSH host first.', 'error'); return; }
+
+      var btn = this;
+      btn.disabled = true;
+      inp('agf-probe-icon').textContent = '⏳';
+
+      var fd = new FormData();
+      fd.append('host',         host);
+      fd.append('ssh_user',     inp('agf-user').value);
+      fd.append('ssh_port',     inp('agf-port').value);
+      fd.append('ssh_password', inp('agf-pass').value);
+
+      try {
+        var resp = await fetch('/admin/gpus/probe', { method: 'POST', body: fd });
+        var data = await resp.json();
+        if (!resp.ok || data.error) {
+          showStatus('Probe failed: ' + (data.error || data.detail || 'unknown error'), 'error');
+          return;
+        }
+
+        var gpus      = data.gpus || [];
+        var totalVRAM = gpus.reduce(function(s, g) { return s + (g.memory_gib || 0); }, 0);
+
+        // Build model string — one entry per machine
+        var modelStr = '';
+        if (gpus.length === 1) {
+          var g = gpus[0];
+          modelStr = g.name + (g.memory_gib ? ' (' + g.memory_gib + ' GiB VRAM)' : '');
+        } else if (gpus.length > 1) {
+          var allSame = gpus.every(function(g) { return g.name === gpus[0].name; });
+          if (allSame) {
+            modelStr = gpus.length + '× ' + gpus[0].name +
+              ' (' + gpus[0].memory_gib + ' GiB each' +
+              (totalVRAM ? ', ' + totalVRAM.toFixed(1) + ' GiB total' : '') + ')';
+          } else {
+            modelStr = gpus.map(function(g) {
+              return g.name + (g.memory_gib ? ' (' + g.memory_gib + ' GiB)' : '');
+            }).join(' + ');
+            if (totalVRAM) modelStr += ' — ' + totalVRAM.toFixed(1) + ' GiB total VRAM';
+          }
+        }
+        if (modelStr && !inp('agf-model').value) inp('agf-model').value = modelStr;
+
+        // Fill dedicated CPU and RAM fields
+        if (data.cpu_model && !inp('agf-cpu-model').value) inp('agf-cpu-model').value = data.cpu_model;
+        if (data.ram_gb && !inp('agf-ram-gb').value)       inp('agf-ram-gb').value = data.ram_gb;
+
+        // Status bar
+        var summary = [];
+        if (gpus.length) summary.push(gpus.length + ' GPU' + (gpus.length > 1 ? 's' : '') +
+          (totalVRAM ? ' · ' + totalVRAM.toFixed(1) + ' GiB total VRAM' : ''));
+        if (data.cpu_model) summary.push(data.cpu_model);
+        if (data.ram_gb)    summary.push(data.ram_gb + ' GB RAM');
+        showStatus('✓ ' + summary.join(' · '), 'ok');
+
+      } catch (e) {
+        showStatus('Network error: ' + e.message, 'error');
+      } finally {
+        btn.disabled = false;
+        inp('agf-probe-icon').textContent = '🔍';
+      }
+    });
+
+    function showStatus(msg, kind) {
+      var el = inp('agf-probe-status');
+      el.textContent = msg;
+      el.className = 'mt-2 text-xs rounded-lg px-3 py-2 ' + (
+        kind === 'ok'
+          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+          : 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300'
+      );
+      el.classList.remove('hidden');
+    }
+  })();
+  </script>
+
+  {# ── Server / GPU cards ────────────────────────────────────────────── #}
+  {% if not gpus %}
+    <div class="text-slate-500 text-sm py-4">No servers added yet.</div>
+  {% else %}
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    {% for g in gpus %}
+      {% set allowed_users = gpu_access_map.get(g.id, []) %}
+      {% set allowed_ids = allowed_users | map(attribute='id') | list %}
+      <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden flex flex-col">
+
+        {# ── Card header ────────────────────────────────────────────── #}
+        <div class="px-4 pt-4 pb-3">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0 flex-1">
+              <div class="font-semibold text-base">{{ g.name }}</div>
+              {% if g.model %}
+                <div class="text-sm text-slate-700 dark:text-slate-300 mt-0.5">{{ g.model }}</div>
+              {% endif %}
+              {% if g.cpu_model or g.ram_gb %}
+                <div class="text-xs text-slate-500 mt-1 flex items-center gap-3 flex-wrap">
+                  {% if g.cpu_model %}
+                    <span><span class="text-slate-400 mr-0.5">CPU</span>{{ g.cpu_model }}</span>
+                  {% endif %}
+                  {% if g.ram_gb %}
+                    <span><span class="text-slate-400 mr-0.5">RAM</span>{{ g.ram_gb }} GB</span>
+                  {% endif %}
+                </div>
+              {% endif %}
+              {% if g.host %}
+                <div class="text-xs font-mono text-slate-400 mt-1.5">
+                  {{ g.ssh_user ~ '@' if g.ssh_user else '' }}{{ g.host }}{% if g.ssh_port and g.ssh_port != 22 %}:{{ g.ssh_port }}{% endif %}
+                </div>
+              {% endif %}
+              {% if g.notes %}
+                <div class="text-xs text-slate-400 mt-1 italic">{{ g.notes }}</div>
+              {% endif %}
+              {% if g.tags %}
+                <div class="flex flex-wrap gap-1 mt-2">
+                  {% for tag in g.tags.split(',') %}
+                    <span class="text-[10px] px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full">{{ tag.strip() }}</span>
                   {% endfor %}
-                </select>
-                <button class="text-xs text-blue-600 hover:underline">save</button>
-              </form>
-            </td>
-            <td class="px-3 py-2">
-              <form method="post" action="/admin/gpus/{{ g.id }}/status" class="flex gap-1">
-                <select name="status" class="border border-slate-300 rounded px-1 py-0.5 text-xs">
-                  {% for s in GpuStatus %}
-                    <option value="{{ s.value }}" {% if s == g.status %}selected{% endif %}>{{ s.value }}</option>
-                  {% endfor %}
-                </select>
-                <button class="text-xs text-blue-600 hover:underline">save</button>
-              </form>
-            </td>
-            <td class="px-3 py-2 text-right">
-              <form method="post" action="/admin/gpus/{{ g.id }}/delete"
-                    onsubmit="return confirm('Delete {{ g.name }}? This cancels its queue and ends any active session.');"
-                    class="inline">
-                <button class="text-xs text-red-600 hover:underline">delete</button>
-              </form>
-            </td>
-          </tr>
-          {% if g.visibility.value == 'RESTRICTED' %}
-          <tr class="bg-amber-50 border-t border-amber-100">
-            <td colspan="6" class="px-4 py-2">
-              <div class="text-xs text-amber-700 font-medium mb-1">Restricted — only these users can see &amp; book this GPU:</div>
-              <div class="flex flex-wrap items-center gap-2">
-                {% for u in allowed_users %}
-                  <span class="inline-flex items-center gap-1 bg-white border border-slate-200 rounded px-2 py-0.5 text-xs">
-                    {{ u.name }}
-                    <form method="post" action="/admin/gpus/{{ g.id }}/access/remove" class="inline leading-none">
-                      <input type="hidden" name="user_id" value="{{ u.id }}" />
-                      <button class="text-red-500 hover:text-red-700 font-bold leading-none"
-                              title="Remove access">×</button>
-                    </form>
-                  </span>
-                {% else %}
-                  <span class="text-xs text-slate-400 italic">No users granted access yet — only you (PI) can see it.</span>
+                </div>
+              {% endif %}
+            </div>
+            <div class="flex flex-col items-end gap-1.5 flex-shrink-0">
+              <span class="text-xs px-2.5 py-0.5 rounded-full font-medium
+                {% if g.status.value == 'AVAILABLE' %}bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300
+                {% elif g.status.value == 'IN_USE' %}bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300
+                {% else %}bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-400{% endif %}">
+                {{ g.status.value.replace('_', ' ') }}
+              </span>
+              <span class="text-xs px-2.5 py-0.5 rounded-full
+                {% if g.visibility.value == 'RESTRICTED' %}bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-400
+                {% else %}bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-400{% endif %}">
+                {{ g.visibility.value }}
+              </span>
+              {% if g.max_hours %}
+                <span class="text-xs text-slate-400">max {{ g.max_hours|int }}h</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        {# ── Live metrics (HTMX lazy-loaded) ────────────────────────── #}
+        {% if g.host %}
+          <div class="mx-4 mb-3"
+               hx-get="/admin/gpus/{{ g.id }}/metrics-partial"
+               hx-trigger="load"
+               hx-swap="innerHTML">
+            <div class="rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 px-3 py-2">
+              <div class="text-xs text-slate-400 italic animate-pulse">Fetching live metrics…</div>
+            </div>
+          </div>
+        {% endif %}
+
+        {# ── Controls ───────────────────────────────────────────────── #}
+        <div class="px-4 pb-4 mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 dark:border-slate-700 pt-3">
+          <div class="flex flex-wrap items-center gap-2">
+            <form method="post" action="/admin/gpus/{{ g.id }}/status" class="inline-flex items-center gap-1">
+              <select name="status" class="border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded-lg px-2 py-1 text-xs">
+                {% for s in GpuStatus %}
+                  <option value="{{ s.value }}" {% if s == g.status %}selected{% endif %}>{{ s.value.replace('_', ' ') }}</option>
                 {% endfor %}
-                {% set grantable = users | selectattr('id', 'ne', user.id) | rejectattr('role', 'equalto', Role.PI) | list %}
-                {% if grantable %}
-                  <form method="post" action="/admin/gpus/{{ g.id }}/access/add" class="inline-flex items-center gap-1">
-                    <select name="user_id" class="border border-slate-300 rounded px-1 py-0.5 text-xs">
-                      {% for u in grantable %}
-                        {% if u.id not in allowed_ids %}
-                          <option value="{{ u.id }}">{{ u.name }}</option>
-                        {% endif %}
-                      {% endfor %}
-                    </select>
-                    <button class="text-xs bg-amber-600 text-white px-2 py-0.5 rounded hover:bg-amber-700">Grant</button>
+              </select>
+              <button class="text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-600">Set status</button>
+            </form>
+            <form method="post" action="/admin/gpus/{{ g.id }}/visibility" class="inline-flex items-center gap-1">
+              <select name="visibility" class="border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded-lg px-2 py-1 text-xs">
+                {% for v in GpuVisibility %}
+                  <option value="{{ v.value }}" {% if v == g.visibility %}selected{% endif %}>{{ v.value }}</option>
+                {% endfor %}
+              </select>
+              <button class="text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 px-2 py-1 rounded-lg border border-slate-300 dark:border-slate-600">Set vis</button>
+            </form>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="document.getElementById('edit-{{ g.id }}').classList.toggle('hidden')"
+                    class="text-xs bg-blue-50 hover:bg-blue-100 dark:bg-blue-950 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-400 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 font-medium">
+              Edit
+            </button>
+            <form method="post" action="/admin/gpus/{{ g.id }}/delete"
+                  onsubmit="return confirm('Delete {{ g.name }} and all its history?');" class="inline">
+              <button class="text-xs bg-red-50 hover:bg-red-100 dark:bg-red-950 dark:hover:bg-red-900 text-red-600 dark:text-red-400 px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-800 font-medium">
+                Delete
+              </button>
+            </form>
+          </div>
+        </div>
+
+        {# ── Edit panel ─────────────────────────────────────────────── #}
+        <div id="edit-{{ g.id }}" class="hidden border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 px-4 py-4">
+          <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Edit Server</div>
+          <form method="post" action="/admin/gpus/{{ g.id }}/edit"
+                class="grid grid-cols-2 md:grid-cols-4 gap-3 items-end">
+            <label class="text-xs text-slate-500 md:col-span-2">
+              GPU(s)
+              <input name="model" value="{{ g.model or '' }}"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded-lg px-2 py-1.5 text-sm mt-1" placeholder="2× RTX 4090 (48 GiB total)" />
+            </label>
+            <label class="text-xs text-slate-500">
+              Processor (CPU)
+              <input name="cpu_model" value="{{ g.cpu_model or '' }}"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded-lg px-2 py-1.5 text-sm mt-1" placeholder="Intel i9-13900K" />
+            </label>
+            <label class="text-xs text-slate-500">
+              RAM (GB)
+              <input name="ram_gb" type="number" min="1" value="{{ g.ram_gb or '' }}"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded-lg px-2 py-1.5 text-sm mt-1" placeholder="128" />
+            </label>
+            <label class="text-xs text-slate-500">
+              Tags (comma-sep)
+              <input name="tags" value="{{ g.tags or '' }}" placeholder="A100, high-mem"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded-lg px-2 py-1.5 text-sm mt-1" />
+            </label>
+            <label class="text-xs text-slate-500">
+              Max hours
+              <input name="max_hours" type="number" step="1" min="1" value="{{ g.max_hours or '' }}"
+                     placeholder="{{ settings.MAX_RESERVATION_HOURS }}"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded-lg px-2 py-1.5 text-sm mt-1" />
+            </label>
+            <label class="text-xs text-slate-500 md:col-span-2">
+              Notes
+              <input name="notes" value="{{ g.notes or '' }}"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded-lg px-2 py-1.5 text-sm mt-1" placeholder="Additional info..." />
+            </label>
+            <label class="text-xs text-slate-500 md:col-span-2 flex items-end pb-0.5">
+              <input type="checkbox" name="is_remote" value="true" {% if g.is_remote %}checked{% endif %} class="mr-2 accent-purple-600" />
+              <span>Remote PC <span class="font-normal text-slate-400">(no SSH yet)</span></span>
+            </label>
+            <label class="text-xs text-slate-500 md:col-span-4">
+              Connection instructions
+              <span class="text-slate-400 font-normal ml-1">— shown to users when they have an active session</span>
+              <textarea name="connect_instructions" rows="4"
+                        class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded-lg px-2 py-1.5 text-sm mt-1 font-mono resize-y"
+                        placeholder="e.g.&#10;ssh ubuntu@192.168.1.100&#10;Password: abc123&#10;Load CUDA: module load cuda/12.1&#10;Check GPU: nvidia-smi">{{ g.connect_instructions or '' }}</textarea>
+            </label>
+            <label class="text-xs text-slate-500 md:col-span-2">
+              SSH Host
+              <input name="host" value="{{ g.host or '' }}" placeholder="192.168.1.100"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded-lg px-2 py-1.5 text-sm mt-1 font-mono" />
+            </label>
+            <label class="text-xs text-slate-500">
+              SSH User
+              <input name="ssh_user" value="{{ g.ssh_user or '' }}" placeholder="ubuntu"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded-lg px-2 py-1.5 text-sm mt-1" />
+            </label>
+            <label class="text-xs text-slate-500">
+              SSH Port
+              <input name="ssh_port" type="number" min="1" max="65535" value="{{ g.ssh_port or '' }}" placeholder="22"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded-lg px-2 py-1.5 text-sm mt-1" />
+            </label>
+            <label class="text-xs text-slate-500 md:col-span-3">
+              SSH Password
+              <input name="ssh_password" type="password" placeholder="leave blank to keep current"
+                     class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded-lg px-2 py-1.5 text-sm mt-1" />
+            </label>
+            <div class="flex gap-2">
+              <button class="bg-blue-600 text-white px-4 py-1.5 rounded-lg hover:bg-blue-700 text-sm font-medium">Save</button>
+              <button type="button" onclick="document.getElementById('edit-{{ g.id }}').classList.add('hidden')"
+                      class="text-sm text-slate-500 hover:underline px-2">Cancel</button>
+            </div>
+          </form>
+        </div>
+
+        {# ── Access control (restricted GPUs) ───────────────────────── #}
+        {% if g.visibility.value == 'RESTRICTED' %}
+          <div class="border-t border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 px-4 py-3">
+            <div class="text-xs font-medium text-amber-700 dark:text-amber-300 mb-2">
+              Restricted — only these users can see &amp; book this GPU:
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              {% for u in allowed_users %}
+                <span class="inline-flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-full px-2.5 py-0.5 text-xs">
+                  {{ u.name }}
+                  <form method="post" action="/admin/gpus/{{ g.id }}/access/remove" class="inline leading-none">
+                    <input type="hidden" name="user_id" value="{{ u.id }}" />
+                    <button class="text-red-500 hover:text-red-700 font-bold ml-0.5">×</button>
                   </form>
-                {% endif %}
-              </div>
-            </td>
-          </tr>
-          {% endif %}
-        {% endfor %}
-      </tbody>
-    </table>
+                </span>
+              {% else %}
+                <span class="text-xs text-slate-400 italic">No users granted — only you (PI) can see it.</span>
+              {% endfor %}
+              {% set grantable = users | selectattr('id', 'ne', user.id) | rejectattr('role', 'equalto', Role.PI) | list %}
+              {% if grantable %}
+                <form method="post" action="/admin/gpus/{{ g.id }}/access/add" class="inline-flex items-center gap-1">
+                  <select name="user_id" class="border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded-lg px-1.5 py-0.5 text-xs">
+                    {% for u in grantable %}
+                      {% if u.id not in allowed_ids %}
+                        <option value="{{ u.id }}">{{ u.name }}</option>
+                      {% endif %}
+                    {% endfor %}
+                  </select>
+                  <button class="text-xs bg-amber-600 text-white px-2.5 py-1 rounded-lg hover:bg-amber-700 font-medium">Grant access</button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+        {% endif %}
+
+      </div>
+    {% endfor %}
   </div>
+  {% endif %}
 </section>
 
+{# ── Recent reservations ───────────────────────────────────────────────── #}
 <section>
-  <h2 class="text-lg font-semibold mb-3">Recent reservations</h2>
-  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-lg font-semibold">Recent reservations</h2>
+    <div class="flex gap-2 text-sm">
+      <a href="/admin/audit" class="text-slate-500 hover:underline">Audit log →</a>
+      <a href="/admin/activity.csv" class="text-blue-600 hover:underline">Export CSV →</a>
+    </div>
+  </div>
+  <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-x-auto">
     <table class="w-full text-sm">
-      <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+      <thead class="bg-slate-50 dark:bg-slate-900 text-slate-500 text-xs uppercase">
         <tr>
           <th class="text-left px-3 py-2">When</th>
           <th class="text-left px-3 py-2">User</th>
@@ -398,17 +773,28 @@
       </thead>
       <tbody>
         {% for r in recent %}
-          <tr class="border-t border-slate-100">
+          <tr class="border-t border-slate-100 dark:border-slate-700">
             <td class="px-3 py-2 text-slate-500">{{ r.created_at.strftime('%b %d %H:%M') }}</td>
             <td class="px-3 py-2">{{ r.user.name }}</td>
             <td class="px-3 py-2">{{ r.gpu.name }}</td>
             <td class="px-3 py-2">{{ '%.1f'|format(r.requested_hours) }}</td>
-            <td class="px-3 py-2">{{ r.status.value }}</td>
+            <td class="px-3 py-2">
+              <span class="px-1.5 py-0.5 rounded-full text-xs font-medium
+                {% if r.status.value == 'ACTIVE' %}bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300
+                {% elif r.status.value == 'OFFERED' %}bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300
+                {% elif r.status.value == 'COMPLETED' %}bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300
+                {% elif r.status.value == 'SCHEDULED' %}bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300
+                {% elif r.status.value == 'QUEUED' %}bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300
+                {% elif r.status.value in ('CANCELLED', 'REJECTED', 'EXPIRED', 'SKIPPED') %}bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400
+                {% else %}bg-slate-100 text-slate-600{% endif %}">
+                {{ r.status.value }}
+              </span>
+            </td>
             <td class="px-3 py-2 text-right">
               {% if r.status.value in ('ACTIVE', 'OFFERED') %}
                 <form method="post" action="/admin/reservations/{{ r.id }}/force-release"
                       onsubmit="return confirm('Force release this reservation?');" class="inline">
-                  <button class="text-xs text-red-600 hover:underline">force release</button>
+                  <button class="text-xs bg-red-50 hover:bg-red-100 text-red-600 px-2 py-0.5 rounded border border-red-200">force release</button>
                 </form>
               {% endif %}
             </td>

@@ -1,0 +1,20 @@
+{% if m %}
+<div class="rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 px-3 py-2">
+  <div class="flex items-center gap-4 text-xs flex-wrap">
+    <div class="flex items-center gap-1.5">
+      <div class="h-1.5 w-20 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+        <div class="h-1.5 {% if m.util_gpu > 80 %}bg-red-500{% elif m.util_gpu > 40 %}bg-amber-500{% else %}bg-green-500{% endif %}"
+             style="width:{{ m.util_gpu }}%"></div>
+      </div>
+      <span class="font-medium {% if m.util_gpu > 80 %}text-red-600{% elif m.util_gpu > 40 %}text-amber-600{% else %}text-green-700{% endif %}">{{ m.util_gpu }}% GPU</span>
+    </div>
+    <span class="text-slate-500">{{ m.mem_used }} / {{ m.mem_total }} MiB VRAM</span>
+    <span class="text-slate-500">{{ m.temp_c }}°C</span>
+    {% if m.power_w %}<span class="text-slate-500">{{ "%.0f"|format(m.power_w) }}W</span>{% endif %}
+  </div>
+</div>
+{% elif is_remote %}
+<div class="rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 px-3 py-2">
+  <span class="text-xs text-slate-400 italic">Remote PC — SSH not configured yet</span>
+</div>
+{% endif %}

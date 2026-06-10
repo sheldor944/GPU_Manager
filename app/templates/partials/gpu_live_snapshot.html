@@ -1,0 +1,103 @@
+{% if gpu_id %}
+  {% if m %}
+    <span id="dot-{{ gpu_id }}" hx-swap-oob="true" class="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"></span>
+  {% elif not is_remote %}
+    <span id="dot-{{ gpu_id }}" hx-swap-oob="true" class="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"></span>
+    <span id="status-{{ gpu_id }}" hx-swap-oob="true"
+          class="normal-case font-normal text-xs px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 ml-1">Offline</span>
+  {% endif %}
+{% endif %}
+{% if m %}
+  <div class="mb-3">
+    <div class="flex justify-between text-xs mb-1">
+      <span>GPU Utilization</span>
+      <span class="font-bold text-base {% if m.util_gpu > 80 %}text-red-600{% elif m.util_gpu > 20 %}text-amber-600{% else %}text-green-600{% endif %}">{{ m.util_gpu }}%</span>
+    </div>
+    <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-3">
+      <div class="h-3 rounded-full {% if m.util_gpu > 80 %}bg-red-500{% elif m.util_gpu > 20 %}bg-amber-400{% else %}bg-green-400{% endif %}" style="width:{{ m.util_gpu }}%"></div>
+    </div>
+  </div>
+  {% set mem_pct = (m.mem_used / m.mem_total * 100)|round(1) if m.mem_total else 0 %}
+  <div class="mb-3">
+    <div class="flex justify-between text-xs mb-1">
+      <span>VRAM</span>
+      <span class="font-bold text-base {% if mem_pct > 90 %}text-red-600{% elif mem_pct > 60 %}text-amber-600{% else %}text-blue-600{% endif %}">{{ mem_pct }}%</span>
+    </div>
+    <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-3">
+      <div class="h-3 rounded-full bg-blue-500" style="width:{{ mem_pct }}%"></div>
+    </div>
+    <div class="text-xs text-slate-400 mt-0.5 text-right">{{ m.mem_used }} / {{ m.mem_total }} MiB</div>
+  </div>
+  <div class="mb-3">
+    <div class="flex justify-between text-xs mb-1">
+      <span>Mem Controller</span>
+      <span class="font-medium">{{ m.util_mem }}%</span>
+    </div>
+    <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2">
+      <div class="h-2 rounded-full bg-purple-400" style="width:{{ m.util_mem }}%"></div>
+    </div>
+  </div>
+  {% if disk %}
+    <div class="mb-3 disk-section">
+      <div class="flex justify-between text-xs mb-1">
+        <span class="flex items-center gap-1.5">
+          Disk
+          <code class="text-[10px] text-slate-400 bg-slate-100 dark:bg-slate-700 px-1 rounded">{{ disk.mount }}</code>
+          {% if disk.all | length > 1 %}
+            <button onclick="this.closest('.disk-section').querySelector('.disk-all').classList.toggle('hidden')"
+                    class="text-[10px] px-1.5 py-0.5 bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500 text-slate-600 dark:text-slate-300 rounded transition-colors">
+              +{{ disk.all | length - 1 }} more
+            </button>
+          {% endif %}
+        </span>
+        <span class="font-bold text-base {% if disk.pct > 90 %}text-red-600{% elif disk.pct > 75 %}text-amber-600{% else %}text-slate-600 dark:text-slate-300{% endif %}">{{ disk.pct }}%</span>
+      </div>
+      <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2">
+        <div class="h-2 rounded-full {% if disk.pct > 90 %}bg-red-500{% elif disk.pct > 75 %}bg-amber-400{% else %}bg-slate-400{% endif %}" style="width:{{ disk.pct }}%"></div>
+      </div>
+      <div class="text-xs text-slate-400 mt-0.5 text-right">{{ disk.avail_gb }} GB free / {{ disk.total_gb }} GB total</div>
+
+      {% if disk.all | length > 1 %}
+        <div class="disk-all hidden mt-2 rounded-lg border border-slate-200 dark:border-slate-600 overflow-hidden text-xs">
+          {% for d in disk.all %}
+            <div class="flex items-center gap-2 px-2.5 py-1.5
+                        {% if not loop.first %}border-t border-slate-100 dark:border-slate-700{% endif %}
+                        {% if loop.first %}bg-slate-50 dark:bg-slate-800/60 font-medium{% endif %}">
+              <code class="text-[10px] text-slate-500 dark:text-slate-400 w-20 truncate shrink-0">{{ d.mount }}</code>
+              <div class="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-1.5">
+                <div class="h-1.5 rounded-full {% if d.pct > 90 %}bg-red-500{% elif d.pct > 75 %}bg-amber-400{% else %}bg-slate-400{% endif %}"
+                     style="width:{{ d.pct }}%"></div>
+              </div>
+              <span class="{% if d.pct > 90 %}text-red-600{% elif d.pct > 75 %}text-amber-600{% else %}text-slate-500 dark:text-slate-400{% endif %} w-7 text-right shrink-0">{{ d.pct }}%</span>
+              <span class="text-slate-400 w-16 text-right shrink-0">{{ d.avail_gb }}G free</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  {% endif %}
+  <div class="flex flex-wrap gap-2">
+    <div class="flex flex-col items-center bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-lg px-3 py-2 min-w-[60px]">
+      <span class="text-xs text-orange-500 mb-0.5">Temp</span>
+      <span class="font-bold text-orange-700 dark:text-orange-300">{{ m.temp_c }}°C</span>
+    </div>
+    {% if m.power_w %}
+      <div class="flex flex-col items-center bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded-lg px-3 py-2 min-w-[60px]">
+        <span class="text-xs text-yellow-600 mb-0.5">Power</span>
+        <span class="font-bold text-yellow-700 dark:text-yellow-300">{{ '%.0f'|format(m.power_w) }}W</span>
+      </div>
+    {% endif %}
+  </div>
+{% else %}
+  {% if is_remote %}
+    <div class="text-sm text-slate-500 dark:text-slate-400">
+      Remote PC — SSH not configured yet.<br/>
+      <span class="text-xs text-slate-400 mt-1 block">Add SSH credentials when the machine is ready.</span>
+    </div>
+  {% else %}
+    <div class="text-sm text-red-500 dark:text-red-400">
+      Cannot connect to this server.<br/>
+      <span class="text-xs text-slate-400 mt-1 block">Check SSH credentials in Admin → GPU edit.</span>
+    </div>
+  {% endif %}
+{% endif %}

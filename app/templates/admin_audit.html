@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Audit Log · GPU Manager{% endblock %}
+{% block content %}
+
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold">Audit Log</h1>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Last 500 actions · most recent first</p>
+  </div>
+  <a href="/admin" class="text-sm text-blue-600 hover:underline">← Back to Admin</a>
+</div>
+
+{# Filter bar #}
+<form method="get" class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 mb-6 flex flex-wrap gap-3 items-end">
+  <label class="text-xs text-slate-500 flex-1 min-w-[120px]">
+    Actor
+    <input type="text" name="actor" value="{{ request.query_params.get('actor', '') }}"
+           placeholder="name or email"
+           class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-0.5 text-sm" />
+  </label>
+  <label class="text-xs text-slate-500 flex-1 min-w-[120px]">
+    Action
+    <input type="text" name="action" value="{{ request.query_params.get('action', '') }}"
+           placeholder="e.g. reservation.force_release"
+           class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-0.5 text-sm" />
+  </label>
+  <label class="text-xs text-slate-500 flex-1 min-w-[100px]">
+    Target
+    <input type="text" name="target" value="{{ request.query_params.get('target', '') }}"
+           placeholder="e.g. GPU #3"
+           class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-0.5 text-sm" />
+  </label>
+  <button class="bg-slate-700 dark:bg-slate-600 text-white px-4 py-1.5 rounded hover:bg-slate-800 text-sm">Filter</button>
+  {% if request.query_params.get('actor') or request.query_params.get('action') or request.query_params.get('target') %}
+    <a href="/admin/audit" class="text-xs text-slate-500 hover:underline self-center">Clear</a>
+  {% endif %}
+</form>
+
+<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+  {% if logs %}
+    <table class="w-full text-sm">
+      <thead class="text-xs text-slate-500 dark:text-slate-400 uppercase border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
+        <tr>
+          <th class="text-left px-4 py-2">Time</th>
+          <th class="text-left px-4 py-2">Actor</th>
+          <th class="text-left px-4 py-2">Action</th>
+          <th class="text-left px-4 py-2">Target</th>
+          <th class="text-left px-4 py-2">Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in logs %}
+          <tr class="border-t border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750">
+            <td class="px-4 py-2 text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">
+              {{ log.created_at.strftime('%Y-%m-%d %H:%M') }}
+            </td>
+            <td class="px-4 py-2 font-medium whitespace-nowrap">
+              {% if log.actor_name == 'system' %}
+                <span class="text-slate-400 dark:text-slate-500 italic">system</span>
+              {% else %}
+                {{ log.actor_name }}
+              {% endif %}
+            </td>
+            <td class="px-4 py-2">
+              <span class="inline-block font-mono text-xs px-2 py-0.5 rounded
+                {% if 'delete' in log.action or 'remove' in log.action or 'force' in log.action or 'reject' in log.action %}
+                  bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300
+                {% elif 'create' in log.action or 'approve' in log.action or 'add' in log.action %}
+                  bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300
+                {% elif 'edit' in log.action or 'update' in log.action or 'settings' in log.action %}
+                  bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300
+                {% else %}
+                  bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300
+                {% endif %}">
+                {{ log.action }}
+              </span>
+            </td>
+            <td class="px-4 py-2 text-slate-600 dark:text-slate-400 text-xs">
+              {{ log.target or '—' }}
+            </td>
+            <td class="px-4 py-2 text-slate-500 dark:text-slate-400 text-xs max-w-xs truncate"
+                title="{{ log.detail or '' }}">
+              {{ log.detail or '' }}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="px-4 py-3 text-xs text-slate-400 dark:text-slate-500 border-t border-slate-100 dark:border-slate-700">
+      Showing {{ logs|length }} entr{{ 'y' if logs|length == 1 else 'ies' }}.
+      {% if logs|length == 500 %}Older entries are not shown.{% endif %}
+    </div>
+  {% else %}
+    <div class="px-4 py-12 text-center text-slate-400 dark:text-slate-500">
+      No audit entries yet{% if request.query_params.get('actor') or request.query_params.get('action') or request.query_params.get('target') %} matching those filters{% endif %}.
+    </div>
+  {% endif %}
+</div>
+
+{% endblock %}

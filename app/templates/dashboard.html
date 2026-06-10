@@ -2,9 +2,20 @@
 {% block title %}Dashboard · GPU Manager{% endblock %}
 {% block content %}
 
+<div class="mb-4 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950 px-4 py-3 text-sm text-amber-800 dark:text-amber-200 flex gap-3 items-start">
+  <span class="text-lg leading-none mt-0.5">⚠️</span>
+  <span>
+    <strong>Please be considerate of shared resources.</strong>
+    GPU time is limited and others may be waiting — use only what you need and release your session promptly when done.
+    Upon completion, <strong>remove your files, datasets, and virtual environments</strong> from the machine.
+    Uncleaned sessions may be cleared by other users or administrators without notice.
+    Back up any work you wish to keep before your session expires.
+  </span>
+</div>
+
 <div id="live"
      hx-get="/dashboard/partial"
-     hx-trigger="every 15s"
+     hx-trigger="every 15s [!document.querySelector('#live details[open]') && (document.activeElement===document.body || !document.getElementById('live').contains(document.activeElement))]"
      hx-swap="innerHTML"
      hx-on::after-swap="window.startCountdowns && window.startCountdowns()">
   {% include "partials/dashboard_live.html" %}

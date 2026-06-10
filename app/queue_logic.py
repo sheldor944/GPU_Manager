@@ -10,6 +10,8 @@ Booking model:
 - When the active reservation on a GPU ends, the next queued entry is OFFERED
   (the user has QUEUE_CONFIRM_MINUTES to accept). If they ignore it, it becomes
   SKIPPED and the next one is offered.
+- Scheduled reservations: user picks a future start time. The scheduler activates
+  them when the time arrives (or queues them if the GPU is occupied at that point).
 """
 from __future__ import annotations
 
@@ -73,13 +75,55 @@ def queue_for_gpu(db: Session, gpu_id: int) -> list[Reservation]:
     )
 
 
-def move_in_queue(db: Session, res: Reservation, direction: int) -> None:
-    """Move a queued reservation up (-1) or down (+1) by one position.
+def scheduled_for_gpu(db: Session, gpu_id: int) -> list[Reservation]:
+    """Return SCHEDULED reservations for a GPU ordered by start time."""
+    return (
+        db.query(Reservation)
+        .filter(Reservation.gpu_id == gpu_id, Reservation.status == ReservationStatus.SCHEDULED)
+        .order_by(Reservation.scheduled_start_at.asc())
+        .all()
+    )
 
-    Swaps queue_sort_key with the neighbour. No-op if already at the edge.
-    Only operates within the same priority bucket — bumping across buckets
-    would require also changing priority, which we leave to other tools.
-    """
+
+def check_schedule_conflict(
+    db: Session, gpu_id: int, start: datetime, end: datetime, exclude_id: Optional[int] = None
+) -> Optional[Reservation]:
+    """Return a conflicting SCHEDULED or ACTIVE reservation if one exists, else None."""
+    # Check against other SCHEDULED reservations
+    candidates = (
+        db.query(Reservation)
+        .filter(
+            Reservation.gpu_id == gpu_id,
+            Reservation.status == ReservationStatus.SCHEDULED,
+            Reservation.scheduled_start_at.is_not(None),
+            Reservation.scheduled_start_at < end,
+        )
+        .all()
+    )
+    for r in candidates:
+        if exclude_id and r.id == exclude_id:
+            continue
+        r_start = r.scheduled_start_at
+        if r_start.tzinfo is None:
+            r_start = r_start.replace(tzinfo=timezone.utc)
+        r_end = r_start + timedelta(hours=r.requested_hours)
+        if r_start < end and r_end > start:
+            return r
+
+    # Also check the currently ACTIVE reservation — warn if it's expected to overlap
+    active = _active_on_gpu(db, gpu_id)
+    if active and active.expected_end_at:
+        active_end = active.expected_end_at
+        if active_end.tzinfo is None:
+            active_end = active_end.replace(tzinfo=timezone.utc)
+        if active_end > start:
+            return active
+
+    return None
+
+
+def move_in_queue(db: Session, res: Reservation, direction: int) -> None:
+    """Move a queued reservation up (-1) or down (+1) by one position."""
     if res.status != ReservationStatus.QUEUED:
         raise ValueError("Only queued reservations can be reordered")
     if direction not in (-1, 1):
@@ -93,7 +137,7 @@ def move_in_queue(db: Session, res: Reservation, direction: int) -> None:
         return
     other = q[target_idx]
     if other.priority != res.priority:
-        return  # different bucket; swapping sort_keys won't change order
+        return
     res.queue_sort_key, other.queue_sort_key = other.queue_sort_key, res.queue_sort_key
     db.commit()
 
@@ -107,6 +151,37 @@ def queue_position(db: Session, reservation: Reservation) -> int:
         if r.id == reservation.id:
             return i
     return 0
+
+
+def estimated_wait_seconds(db: Session, reservation: Reservation) -> Optional[int]:
+    """Rough estimate of seconds until a QUEUED reservation becomes active."""
+    if reservation.status != ReservationStatus.QUEUED:
+        return None
+    now = utcnow()
+    active = _active_on_gpu(db, reservation.gpu_id)
+    offered = _offered_on_gpu(db, reservation.gpu_id)
+    current = active or offered
+
+    if current is None:
+        return 0
+
+    # Start from expected end of current session
+    if current.expected_end_at:
+        end_dt = current.expected_end_at
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=timezone.utc)
+        base_secs = max(0.0, (end_dt - now).total_seconds())
+    else:
+        base_secs = 0.0
+
+    # Add time for each queue member ahead of this one
+    q = queue_for_gpu(db, reservation.gpu_id)
+    for r in q:
+        if r.id == reservation.id:
+            break
+        base_secs += r.requested_hours * 3600
+
+    return int(base_secs)
 
 
 def user_has_active_or_offered(db: Session, user_id: int) -> bool:
@@ -145,22 +220,85 @@ def user_queued_on_gpu(db: Session, user_id: int, gpu_id: int) -> Optional[Reser
     )
 
 
-def request_gpu(db: Session, user: User, gpu: Gpu, hours: float, note: str = "") -> tuple[Reservation, str]:
+def user_scheduled_on_gpu(db: Session, user_id: int, gpu_id: int) -> Optional[Reservation]:
+    return (
+        db.query(Reservation)
+        .filter(
+            Reservation.user_id == user_id,
+            Reservation.gpu_id == gpu_id,
+            Reservation.status == ReservationStatus.SCHEDULED,
+        )
+        .first()
+    )
+
+
+def gpu_effective_max_hours(gpu: Gpu) -> float:
+    """Per-GPU override or global config limit."""
+    return gpu.max_hours if gpu.max_hours is not None else settings.MAX_RESERVATION_HOURS
+
+
+def request_gpu(
+    db: Session,
+    user: User,
+    gpu: Gpu,
+    hours: float,
+    note: str = "",
+    scheduled_start_at: Optional[datetime] = None,
+) -> tuple[Reservation, str]:
     """Create a reservation. Returns (reservation, human_message).
 
-    Non-admin requests start in PENDING_APPROVAL. PI requests auto-approve and
-    flow directly into ACTIVE or QUEUED.
+    If scheduled_start_at is provided (and in the future), the reservation is
+    created as SCHEDULED. Otherwise it follows the normal QUEUED/ACTIVE flow.
 
     Raises ValueError for client-side problems (caller maps to HTTP 400).
     """
     if hours <= 0:
         raise ValueError("Hours must be positive")
-    if hours > settings.MAX_RESERVATION_HOURS:
-        raise ValueError(f"Reservation exceeds max of {settings.MAX_RESERVATION_HOURS}h")
+    effective_max = gpu_effective_max_hours(gpu)
+    if hours > effective_max:
+        raise ValueError(f"Reservation exceeds max of {effective_max:g}h for this GPU")
     if not user_can_access_gpu(db, user, gpu):
         raise ValueError("You do not have access to this GPU.")
     if gpu.status == GpuStatus.MAINTENANCE:
         raise ValueError("GPU is in maintenance and cannot be booked")
+
+    now = utcnow()
+
+    # --- Scheduled path ---
+    if scheduled_start_at is not None:
+        if scheduled_start_at.tzinfo is None:
+            scheduled_start_at = scheduled_start_at.replace(tzinfo=timezone.utc)
+        if scheduled_start_at <= now + timedelta(minutes=5):
+            raise ValueError("Scheduled start time must be at least 5 minutes in the future. For immediate booking, leave start time blank.")
+        scheduled_end = scheduled_start_at + timedelta(hours=hours)
+        conflict = check_schedule_conflict(db, gpu.id, scheduled_start_at, scheduled_end)
+        if conflict:
+            cs = conflict.scheduled_start_at
+            if cs.tzinfo is None:
+                cs = cs.replace(tzinfo=timezone.utc)
+            raise ValueError(
+                f"Time conflict: {conflict.user.name} has already booked this GPU "
+                f"from {cs:%b %d %H:%M} for {conflict.requested_hours:g}h."
+            )
+        if user_scheduled_on_gpu(db, user.id, gpu.id):
+            raise ValueError("You already have a scheduled booking for this GPU.")
+        if user_queued_on_gpu(db, user.id, gpu.id):
+            raise ValueError("You are already queued for this GPU. Cancel that first before scheduling.")
+
+        res = Reservation(
+            user_id=user.id,
+            gpu_id=gpu.id,
+            requested_hours=hours,
+            priority=1 if user.over_quota else 0,
+            note=note or None,
+            status=ReservationStatus.SCHEDULED,
+            scheduled_start_at=scheduled_start_at,
+        )
+        db.add(res)
+        db.commit()
+        return res, f"Scheduled on {gpu.name} for {scheduled_start_at:%b %d %H:%M} ({hours:g}h)."
+
+    # --- Immediate path ---
     if user_has_active_or_offered(db, user.id):
         raise ValueError("You already have an active reservation or pending offer. Release it first.")
     if user_has_pending(db, user.id):
@@ -178,10 +316,8 @@ def request_gpu(db: Session, user: User, gpu: Gpu, hours: float, note: str = "")
         status=ReservationStatus.PENDING_APPROVAL,
     )
     db.add(res)
-    db.flush()  # get id
+    db.flush()
 
-    # PI always skips approval. Other users skip it unless the admin has flipped
-    # REQUIRE_REQUEST_APPROVAL on.
     skip_approval = user.role == Role.PI or not get_bool(db, REQUIRE_REQUEST_APPROVAL, default=False)
     if skip_approval:
         db.commit()
@@ -190,6 +326,76 @@ def request_gpu(db: Session, user: User, gpu: Gpu, hours: float, note: str = "")
 
     db.commit()
     return res, "Request submitted — waiting for admin approval."
+
+
+def activate_scheduled_reservations(db: Session) -> list[Reservation]:
+    """Activate SCHEDULED reservations whose start time has arrived.
+
+    Returns the list of reservations just activated/offered (so the caller can email them).
+    """
+    now = utcnow()
+    due: list[Reservation] = (
+        db.query(Reservation)
+        .filter(
+            Reservation.status == ReservationStatus.SCHEDULED,
+            Reservation.scheduled_start_at.is_not(None),
+            Reservation.scheduled_start_at <= now,
+        )
+        .all()
+    )
+    activated: list[Reservation] = []
+    for res in due:
+        gpu = res.gpu
+        if gpu.status == GpuStatus.MAINTENANCE:
+            res.status = ReservationStatus.CANCELLED
+            res.ended_at = now
+            add_notification(
+                db,
+                res.user_id,
+                f"Your scheduled session on {gpu.name} was cancelled — GPU entered maintenance.",
+                link="/dashboard",
+            )
+            db.flush()
+            continue
+
+        # Flush before querying so prior iterations' changes are visible
+        db.flush()
+        active = _active_on_gpu(db, gpu.id)
+        offered_res = _offered_on_gpu(db, gpu.id)
+        if active is None and offered_res is None and gpu.status == GpuStatus.AVAILABLE:
+            _start_reservation(db, res)
+            gpu.status = GpuStatus.IN_USE
+            db.flush()
+            add_notification(
+                db, res.user_id,
+                f"Your scheduled session on {gpu.name} is now ACTIVE.",
+                link="/dashboard",
+            )
+            activated.append(res)
+        else:
+            # GPU occupied — move to front of queue (priority 0, very early sort key)
+            # Only queue if not already queued for this GPU (avoid duplicates)
+            existing_queued = user_queued_on_gpu(db, res.user_id, gpu.id)
+            if existing_queued:
+                res.status = ReservationStatus.CANCELLED
+                res.ended_at = now
+                add_notification(
+                    db, res.user_id,
+                    f"Your scheduled time on {gpu.name} arrived but you're already in the queue.",
+                    link="/dashboard",
+                )
+            else:
+                res.status = ReservationStatus.QUEUED
+                res.queue_sort_key = 0.0  # front of the line
+                add_notification(
+                    db, res.user_id,
+                    f"Your scheduled time on {gpu.name} arrived but the GPU is still in use. "
+                    f"You've been moved to the front of the queue.",
+                    link="/dashboard",
+                )
+    if due:
+        db.commit()
+    return activated
 
 
 def _request_outcome_message(db: Session, res: Reservation) -> str:
@@ -204,6 +410,12 @@ def _request_outcome_message(db: Session, res: Reservation) -> str:
 def _activate_or_queue(db: Session, res: Reservation) -> None:
     """Move a freshly-approved reservation into ACTIVE or QUEUED."""
     gpu = res.gpu
+    # Re-check at activation time: don't give a user two simultaneous sessions
+    if user_has_active_or_offered(db, res.user_id):
+        res.status = ReservationStatus.QUEUED
+        res.queue_sort_key = utcnow().timestamp()
+        db.commit()
+        return
     active = _active_on_gpu(db, gpu.id)
     offered = _offered_on_gpu(db, gpu.id)
     if active is None and offered is None and gpu.status == GpuStatus.AVAILABLE:
@@ -242,16 +454,12 @@ def _start_reservation(db: Session, res: Reservation) -> None:
 
 
 def release_reservation(db: Session, res: Reservation, by_admin: bool = False) -> Optional[Reservation]:
-    """End an ACTIVE / OFFERED reservation and promote the next in queue.
-
-    Returns the next reservation that was offered (if any), so callers can email it.
-    """
+    """End an ACTIVE / OFFERED reservation and promote the next in queue."""
     if res.status not in (ReservationStatus.ACTIVE, ReservationStatus.OFFERED):
         raise ValueError("Reservation is not active")
 
     now = utcnow()
     if res.status == ReservationStatus.ACTIVE:
-        # Charge actual elapsed hours, not requested, capped at requested.
         elapsed = 0.0
         if res.started_at:
             started = res.started_at if res.started_at.tzinfo else res.started_at.replace(tzinfo=timezone.utc)
@@ -259,7 +467,7 @@ def release_reservation(db: Session, res: Reservation, by_admin: bool = False) -
         charged = min(elapsed, res.requested_hours)
         res.user.used_hours = round(res.user.used_hours + charged, 4)
         res.status = ReservationStatus.COMPLETED
-    else:  # OFFERED
+    else:
         res.status = ReservationStatus.SKIPPED
     res.ended_at = now
 
@@ -269,8 +477,8 @@ def release_reservation(db: Session, res: Reservation, by_admin: bool = False) -
 
 
 def cancel_queued(db: Session, res: Reservation) -> None:
-    if res.status not in (ReservationStatus.QUEUED, ReservationStatus.PENDING_APPROVAL):
-        raise ValueError("Only queued or pending reservations can be cancelled")
+    if res.status not in (ReservationStatus.QUEUED, ReservationStatus.PENDING_APPROVAL, ReservationStatus.SCHEDULED):
+        raise ValueError("Only queued, scheduled, or pending reservations can be cancelled")
     res.status = ReservationStatus.CANCELLED
     res.ended_at = utcnow()
     db.commit()
@@ -279,18 +487,36 @@ def cancel_queued(db: Session, res: Reservation) -> None:
 def confirm_offer(db: Session, res: Reservation) -> None:
     if res.status != ReservationStatus.OFFERED:
         raise ValueError("This reservation is not currently offered")
+    # Defensive check: ensure user doesn't already have an active session
+    existing = (
+        db.query(Reservation)
+        .filter(
+            Reservation.user_id == res.user_id,
+            Reservation.status == ReservationStatus.ACTIVE,
+        )
+        .first()
+    )
+    if existing:
+        raise ValueError(f"You already have an active session on {existing.gpu.name}. Release it first.")
     _start_reservation(db, res)
     res.gpu.status = GpuStatus.IN_USE
     db.commit()
 
 
 def _promote_next(db: Session, gpu_id: int) -> Optional[Reservation]:
-    """Offer the next queued reservation on this GPU. Returns it, or None."""
+    """Offer the next queued reservation on this GPU. Returns it, or None.
+
+    Skips any user who already has an ACTIVE or OFFERED session on another GPU
+    to prevent a user from holding two GPUs simultaneously.
+    """
     gpu = db.get(Gpu, gpu_id)
     if gpu is None:
         return None
     if gpu.status == GpuStatus.MAINTENANCE:
-        gpu.status = GpuStatus.MAINTENANCE  # leave it
+        return None
+
+    # Guard against double-offer from concurrent calls (e.g. two expiries same tick)
+    if _offered_on_gpu(db, gpu_id) is not None:
         return None
 
     q = queue_for_gpu(db, gpu_id)
@@ -298,19 +524,22 @@ def _promote_next(db: Session, gpu_id: int) -> Optional[Reservation]:
         gpu.status = GpuStatus.AVAILABLE
         return None
 
-    nxt = q[0]
-    nxt.status = ReservationStatus.OFFERED
-    nxt.offered_at = utcnow()
-    gpu.status = GpuStatus.IN_USE  # reserved-pending; treat as occupied for new requests
-    return nxt
+    for nxt in q:
+        if user_has_active_or_offered(db, nxt.user_id):
+            # User is already holding or waiting on another GPU; skip them for now.
+            continue
+        nxt.status = ReservationStatus.OFFERED
+        nxt.offered_at = utcnow()
+        gpu.status = GpuStatus.IN_USE
+        return nxt
+
+    # Everyone in queue is already active elsewhere
+    gpu.status = GpuStatus.AVAILABLE
+    return None
 
 
 def expire_overdue(db: Session) -> list[Reservation]:
-    """Auto-release reservations past their expected_end_at.
-
-    Returns the list of "next offered" reservations created as a side effect,
-    so the caller can email those users.
-    """
+    """Auto-release reservations past their expected_end_at."""
     now = utcnow()
     overdue: list[Reservation] = (
         db.query(Reservation)
@@ -323,11 +552,16 @@ def expire_overdue(db: Session) -> list[Reservation]:
     )
     offered: list[Reservation] = []
     for res in overdue:
-        # full charge — they used the whole window
-        elapsed_hours = res.requested_hours
+        # Charge actual elapsed time (not requested_hours — session may have been shortened)
+        if res.started_at:
+            started = res.started_at if res.started_at.tzinfo else res.started_at.replace(tzinfo=timezone.utc)
+            elapsed_hours = min(res.requested_hours, max(0.0, (now - started).total_seconds() / 3600.0))
+        else:
+            elapsed_hours = res.requested_hours
         res.user.used_hours = round(res.user.used_hours + elapsed_hours, 4)
         res.status = ReservationStatus.EXPIRED
         res.ended_at = now
+        db.flush()  # commit status change before promoting so _active_on_gpu sees correct state
         nxt = _promote_next(db, res.gpu_id)
         if nxt is not None:
             offered.append(nxt)
@@ -366,17 +600,14 @@ def add_notification(db: Session, user_id: int, message: str, link: str | None =
 
 
 def adjust_reservation_hours(db: Session, res: Reservation, new_hours: float) -> tuple[str, Optional[Reservation]]:
-    """Extend or shorten an ACTIVE reservation.
-
-    Returns (message, next_offered). next_offered is set only if shortening
-    pushed end-time below already-elapsed, causing an immediate release.
-    """
+    """Extend or shorten an ACTIVE reservation."""
     if res.status != ReservationStatus.ACTIVE:
         raise ValueError("Only active reservations can be adjusted")
     if new_hours <= 0:
         raise ValueError("Hours must be positive")
-    if new_hours > settings.MAX_RESERVATION_HOURS:
-        raise ValueError(f"Total reservation cannot exceed {settings.MAX_RESERVATION_HOURS}h")
+    effective_max = gpu_effective_max_hours(res.gpu)
+    if new_hours > effective_max:
+        raise ValueError(f"Total reservation cannot exceed {effective_max:g}h for this GPU")
     if res.started_at is None:
         raise ValueError("Reservation missing start time")
 
@@ -388,13 +619,12 @@ def adjust_reservation_hours(db: Session, res: Reservation, new_hours: float) ->
         return f"Reservation ended now (used {elapsed_h:.2f}h).", next_res
     res.requested_hours = round(new_hours, 4)
     res.expected_end_at = started + timedelta(hours=new_hours)
-    res.warning_sent_at = None  # so a fresh warning fires near the new end
+    res.warning_sent_at = None
     db.commit()
     return f"Reservation set to {new_hours:g}h total (ends {res.expected_end_at:%b %d %H:%M}).", None
 
 
 def add_watch(db: Session, user_id: int, gpu_id: int) -> bool:
-    """Subscribe user to a 'GPU free' ping. Returns True if newly added."""
     existing = (
         db.query(Watch)
         .filter(Watch.user_id == user_id, Watch.gpu_id == gpu_id)
@@ -421,7 +651,6 @@ def remove_watch(db: Session, user_id: int, gpu_id: int) -> bool:
 
 
 def pop_watchers_for_gpu(db: Session, gpu_id: int) -> list[Watch]:
-    """Return and delete all watches for this GPU (one-shot)."""
     watches = db.query(Watch).filter(Watch.gpu_id == gpu_id).all()
     for w in watches:
         db.delete(w)

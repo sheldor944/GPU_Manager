@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Calendar · GPU Manager{% endblock %}
+{% block content %}
+
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-semibold">GPU Calendar</h1>
+  <div class="text-sm text-slate-500 dark:text-slate-400">Next 7 days · <span id="cal-now"></span></div>
+</div>
+
+{# Legend #}
+<div class="flex flex-wrap gap-3 text-xs mb-4">
+  <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-amber-400 inline-block"></span> Active / Offered</span>
+  <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-indigo-400 inline-block"></span> Scheduled</span>
+  <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-slate-300 inline-block"></span> Queued (estimated)</span>
+  <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-green-200 inline-block"></span> Free</span>
+</div>
+
+{# Day header ticks #}
+{% set now_ts = now_ts %}
+{% set window_end_ts = window_end_ts %}
+{% set total_secs = window_end_ts - now_ts %}
+
+<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden mb-8">
+  {# Header row — day labels #}
+  <div class="flex border-b border-slate-200 dark:border-slate-700">
+    <div class="w-32 flex-shrink-0 px-3 py-2 text-xs text-slate-500 font-medium">GPU</div>
+    <div class="flex-1 relative h-8 overflow-hidden">
+      {% for d in range(8) %}
+        {% set pct = (d * 24 * 3600 / total_secs * 100)|round(2) %}
+        {% if pct <= 100 %}
+          <div class="absolute top-0 bottom-0 border-l border-slate-200 dark:border-slate-600 flex items-center pl-1"
+               style="left: {{ pct }}%">
+            <span class="text-xs text-slate-500 whitespace-nowrap">
+              {{ (now + timedelta(days=d)).strftime('%a %b %d') }}
+            </span>
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+
+  {# GPU rows #}
+  {% if not gpus %}
+    <div class="px-4 py-8 text-center text-slate-400">No GPUs accessible.</div>
+  {% endif %}
+  {% for gpu in gpus %}
+    {% set blocks = gpu_blocks.get(gpu.id, []) %}
+    <div class="flex border-b border-slate-100 dark:border-slate-700 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-750">
+      <div class="w-32 flex-shrink-0 px-3 py-3">
+        <div class="font-medium text-sm truncate">{{ gpu.name }}</div>
+        <div class="text-xs text-slate-500 truncate">{{ gpu.model or gpu.host or '' }}</div>
+      </div>
+      <div class="flex-1 relative h-14 bg-green-50 dark:bg-green-950/30">
+        {# Hour grid lines #}
+        {% for h in range(1, 168) %}
+          {% if h % 24 == 0 %}
+            <div class="absolute top-0 bottom-0 border-l border-slate-300 dark:border-slate-600"
+                 style="left: {{ (h * 3600 / total_secs * 100)|round(2) }}%"></div>
+          {% elif h % 6 == 0 %}
+            <div class="absolute top-0 bottom-0 border-l border-slate-100 dark:border-slate-700"
+                 style="left: {{ (h * 3600 / total_secs * 100)|round(2) }}%"></div>
+          {% endif %}
+        {% endfor %}
+
+        {# Reservation blocks #}
+        {% for block in blocks %}
+          {% set left_pct = ((block.start_ts - now_ts) / total_secs * 100)|round(3) %}
+          {% set width_pct = ((block.end_ts - block.start_ts) / total_secs * 100)|round(3) %}
+          {% if width_pct > 0 and left_pct < 100 %}
+            <div class="absolute top-1 bottom-1 rounded overflow-hidden text-xs text-white flex items-center px-1
+                        {% if block.status == 'ACTIVE' or block.status == 'OFFERED' %}bg-amber-400 dark:bg-amber-500
+                        {% elif block.status == 'SCHEDULED' %}bg-indigo-400 dark:bg-indigo-500
+                        {% else %}bg-slate-300 dark:bg-slate-600 text-slate-700 dark:text-slate-200{% endif %}"
+                 style="left: {{ [left_pct, 0]|max }}%; width: {{ [width_pct, 0.5]|max }}%"
+                 title="{{ block.user }} · {{ '%.1f'|format(block.hours) }}h{% if block.note %} · {{ block.note }}{% endif %}">
+              <span class="truncate">{{ block.user }}</span>
+            </div>
+          {% endif %}
+        {% endfor %}
+
+        {# "Now" indicator #}
+        <div class="absolute top-0 bottom-0 border-l-2 border-red-500 z-10" style="left: 0%">
+          <div class="w-1.5 h-1.5 bg-red-500 rounded-full -ml-0.5 mt-0.5"></div>
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+
+{# Quick scheduling form #}
+<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+  <h2 class="font-semibold mb-3">Book a GPU</h2>
+  <form method="post" action="/reservations/request" class="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+    <label class="text-xs text-slate-500 sm:col-span-1">
+      GPU
+      <select name="gpu_id" class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-0.5" required>
+        {% for gpu in gpus %}
+          {% if gpu.status.value != 'MAINTENANCE' %}
+            <option value="{{ gpu.id }}">{{ gpu.name }}{% if gpu.model %} ({{ gpu.model }}){% endif %}</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+    </label>
+    <label class="text-xs text-slate-500">
+      Start (blank = ASAP)
+      <input type="datetime-local" name="scheduled_start_at"
+             class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-0.5" />
+    </label>
+    <label class="text-xs text-slate-500">
+      Hours
+      <input type="number" name="hours" step="0.5" min="0.5" max="{{ settings.MAX_RESERVATION_HOURS }}"
+             value="4" class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-0.5" required />
+    </label>
+    <label class="text-xs text-slate-500 sm:col-span-1">
+      Note
+      <input type="text" name="note" placeholder="optional"
+             class="block w-full border border-slate-300 dark:border-slate-600 dark:bg-slate-700 rounded px-2 py-1.5 mt-0.5" />
+    </label>
+    <button class="bg-blue-600 text-white px-4 py-1.5 rounded hover:bg-blue-700">Book</button>
+  </form>
+</div>
+
+<script>
+  document.getElementById('cal-now').textContent = new Date().toLocaleString();
+
+  // Refresh calendar every 2 minutes
+  setTimeout(() => location.reload(), 120000);
+</script>
+
+{% endblock %}
